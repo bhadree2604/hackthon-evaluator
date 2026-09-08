@@ -1,42 +1,76 @@
 {
   "expo": {
-    "name": "hackfinity3.0",
-    "slug": "hackfinity3.0",
-    "version": "1.0.0",
+    "name": "Hackfinity 3.0",
+    "slug": "hackfinity30",
+    "version": "1.0.3",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/brand/icon-512.png",
     "scheme": "hackfinity30",
     "userInterfaceStyle": "automatic",
+    "backgroundColor": "#050509",
+    "primaryColor": "#57e6ff",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ramcoad.hackfinity3",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
+      },
+      "buildNumber": "4"
     },
     "android": {
+      "package": "com.ramcoad.hackfinity3",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
+        "backgroundColor": "#050509",
+        "foregroundImage": "./assets/images/brand/icon-512.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "softwareKeyboardLayoutMode": "resize",
+      "versionCode": 4
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/brand/icon-192.png"
     },
     "plugins": [
       "expo-router",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Hackfinity 3.0 uses the camera to scan the QR and barcode on a team badge.",
+          "recordAudioAndroid": false
+        }
+      ],
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#050509",
+          "image": "./assets/images/brand/icon-512.png",
+          "imageWidth": 120
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#57e6ff",
+          "defaultChannel": "hackfinity-default",
+          "enableBackgroundRemoteNotifications": false
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "af97ac53-c001-44b7-a319-18aaa27fb9fb"
+      }
+    },
+    "owner": "mrdivine17"
   }
 }
