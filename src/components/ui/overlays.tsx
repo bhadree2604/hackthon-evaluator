@@ -257,6 +257,12 @@ const useStyles = makeStyles((Brand) => ({
     borderColor: Brand.border,
     paddingHorizontal: Space.lg,
     paddingTop: Space.sm,
+    /**
+     * React Native defaults flexShrink to 0. Without these the ScrollView grows
+     * to its full content height, the sheet outgrows the 92% cap above, and the
+     * footer - the Save button - ends up below the bottom of the screen.
+     */
+    flexShrink: 1,
   },
   grabber: {
     width: 38,
@@ -277,7 +283,7 @@ const useStyles = makeStyles((Brand) => ({
     justifyContent: 'center',
     backgroundColor: Brand.surfaceStrong,
   },
-  sheetScroll: { marginTop: Space.lg },
+  sheetScroll: { marginTop: Space.lg, flexShrink: 1 },
   // Enough room that the last field clears the footer and the nav bar.
   sheetContent: { gap: Space.lg, paddingBottom: Space.xxl * 2 },
   sheetFooter: {

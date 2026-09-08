@@ -1,9 +1,11 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useQuery } from 'convex/react';
+import { useState } from 'react';
 import { Image } from 'expo-image';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { TeamEditorSheet, type EditableTeam } from '@/components/team-editor';
 import { Button } from '@/components/ui/button';
 import {
   Avatar,
@@ -28,7 +30,8 @@ export default function TeamDetail() {
   const RoleTheme = useRoleTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { status, profile } = useSession();
+  const { status, profile, roles } = useSession();
+  const [editing, setEditing] = useState(false);
 
   const data = useQuery(
     api.teams.get,
@@ -87,8 +90,29 @@ export default function TeamDetail() {
         }
       />
 
+      {roles.includes('admin') && (
+        <Button
+          label="Edit this team"
+          icon="pencil-outline"
+          variant="secondary"
+          accent={theme.accent}
+          full
+          onPress={() => setEditing(true)}
+        />
+      )}
+
       {!!team.photoUrl && (
         <Image source={{ uri: team.photoUrl }} style={styles.hero} contentFit="cover" transition={200} />
+      )}
+
+      {roles.includes('admin') && (
+        <TeamEditorSheet
+          visible={editing}
+          team={team as unknown as EditableTeam}
+          accent={theme.accent}
+          onClose={() => setEditing(false)}
+          onDeleted={() => router.back()}
+        />
       )}
 
       {canScore && (

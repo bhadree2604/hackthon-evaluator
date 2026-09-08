@@ -1,19 +1,40 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useMutation, useQuery } from 'convex/react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useToast } from '@/components/ui/overlays';
-import { Pill, withAlpha } from '@/components/ui/primitives';
+import { ConfirmDialog, useToast } from '@/components/ui/overlays';
+import { withAlpha } from '@/components/ui/primitives';
 import { Radius, Space, type RoleKey } from '@/constants/brand';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { errorMessage } from '@/lib/errors';
 import { useSession } from '@/lib/session';
 import { makeStyles, useColors, useRoleTheme } from '@/lib/theme';
+
+/**
+ * The single help desk room everyone at the event shares.
+ *
+ * Who is speaking is the whole job of this screen. A participant is shown with
+ * their name, their team name and their team code, because the organiser
+ * reading it has to know which table to walk to. Staff are shown with their
+ * role. Runs of messages from the same person are grouped so a long thread
+ * still reads as a conversation on a phone.
+ */
+
+/** Messages from the same person within this many ms are grouped. */
+const GROUP_WINDOW = 5 * 60 * 1000;
 
 function timeLabel(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -29,10 +50,17 @@ function dayLabel(ts: number) {
   return sameDay ? 'Today' : date.toLocaleDateString([], { day: 'numeric', month: 'short' });
 }
 
-/**
- * The single room everyone at the event shares. Participants are labelled with
- * their team, staff with their role, so it is always clear who is speaking.
- */
+function initials(name: string) {
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? '')
+      .join('') || '?'
+  );
+}
+
 export function ChatRoom({ bottomInset = 0 }: { bottomInset?: number }) {
   const Brand = useColors();
   const styles = useStyles();
@@ -48,12 +76,24 @@ export function ChatRoom({ bottomInset = 0 }: { bottomInset?: number }) {
 
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [deleting, setDeleting] = useState<{ id: string; author: string } | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const lastCount = useRef(0);
 
-  const messages = data?.messages ?? [];
+  const messages = useMemo(() => data?.messages ?? [], [data]);
   const unread = data?.unread ?? 0;
   const canModerate = profile?.roles?.includes('admin') ?? false;
+
+  /**
+   * "New messages" marks what has landed while this screen has been open.
+   * Opening the room clears the unread count immediately, so anything newer
+   * than that moment is what the reader has genuinely not seen.
+   */
+  const [openedAt] = useState(() => Date.now());
+  const firstNewId = useMemo(
+    () => messages.find((message) => !message.mine && message.createdAt > openedAt)?._id ?? null,
+    [messages, openedAt],
+  );
 
   // Depends on the count, never on the array, so marking read cannot loop.
   useEffect(() => {
@@ -75,12 +115,14 @@ export function ChatRoom({ bottomInset = 0 }: { bottomInset?: number }) {
     try {
       await send({ body });
       setDraft('');
-    } catch (err) {
-      toast.show(errorMessage(err), 'error');
+    } catch (error) {
+      toast.show(errorMessage(error), 'error');
     } finally {
       setSending(false);
     }
   }
+
+  const canSend = draft.trim().length > 0 && !sending;
 
   return (
     <LinearGradient
@@ -90,13 +132,17 @@ export function ChatRoom({ bottomInset = 0 }: { bottomInset?: number }) {
       end={{ x: 0.9, y: 1 }}>
       <KeyboardAvoidingView style={styles.root} behavior="padding" keyboardVerticalOffset={0}>
         <View style={[styles.header, { paddingTop: insets.top + Space.md }]}>
+          <View style={[styles.headerMark, { backgroundColor: withAlpha(Brand.cyan, 0.14) }]}>
+            <MaterialCommunityIcons name="lifebuoy" size={19} color={Brand.cyan} />
+          </View>
           <View style={styles.flex}>
             <Text style={styles.headerTitle}>Help desk</Text>
             <Text style={styles.headerSubtitle}>
-              Everyone at Hackfinity is in this room
+              {messages.length === 0
+                ? 'Everyone at Hackfinity is in this room'
+                : `${messages.length} message${messages.length === 1 ? '' : 's'} · everyone is in this room`}
             </Text>
           </View>
-          <MaterialCommunityIcons name="forum-outline" size={20} color={Brand.textFaint} />
         </View>
 
         {data === undefined ? (
@@ -114,27 +160,45 @@ export function ChatRoom({ bottomInset = 0 }: { bottomInset?: number }) {
             {messages.length === 0 ? (
               <View style={styles.empty}>
                 <View style={[styles.emptyIcon, { backgroundColor: Brand.surfaceStrong }]}>
-                  <MaterialCommunityIcons name="forum-outline" size={24} color={Brand.textFaint} />
+                  <MaterialCommunityIcons
+                    name="message-text-outline"
+                    size={24}
+                    color={Brand.textFaint}
+                  />
                 </View>
                 <Text style={styles.emptyTitle}>Nothing said yet</Text>
                 <Text style={styles.emptyText}>
                   Ask about your lab, hardware, food or judging. Organisers and coordinators get a
-                  notification when a participant posts.
+                  notification the moment a participant posts.
                 </Text>
               </View>
             ) : (
               messages.map((message, index) => {
                 const previous = messages[index - 1];
-                const showDay =
-                  !previous || dayLabel(previous.createdAt) !== dayLabel(message.createdAt);
+                const next = messages[index + 1];
                 const role = message.authorRole as RoleKey;
                 const tone = RoleTheme[role].accent;
 
-                // Participants carry their team, staff carry their role.
-                const badge =
-                  role === 'participant'
-                    ? (message.authorTeamCode ?? message.authorTeamName ?? 'Participant')
-                    : RoleTheme[role].label;
+                const showDay =
+                  !previous || dayLabel(previous.createdAt) !== dayLabel(message.createdAt);
+
+                /** First message of a run by this person. */
+                const startsRun =
+                  showDay ||
+                  !previous ||
+                  previous.authorName !== message.authorName ||
+                  previous.authorRole !== message.authorRole ||
+                  message.createdAt - previous.createdAt > GROUP_WINDOW;
+
+                /** Last of the run: only this one carries the time. */
+                const endsRun =
+                  !next ||
+                  next.authorName !== message.authorName ||
+                  next.authorRole !== message.authorRole ||
+                  next.createdAt - message.createdAt > GROUP_WINDOW ||
+                  dayLabel(next.createdAt) !== dayLabel(message.createdAt);
+
+                const isParticipant = role === 'participant';
 
                 return (
                   <View key={message._id}>
@@ -143,45 +207,116 @@ export function ChatRoom({ bottomInset = 0 }: { bottomInset?: number }) {
                         <Text style={styles.dayText}>{dayLabel(message.createdAt)}</Text>
                       </View>
                     )}
+
+                    {firstNewId === message._id && (
+                      <View style={styles.unreadRow}>
+                        <View style={[styles.unreadLine, { backgroundColor: Brand.cyan }]} />
+                        <Text style={[styles.unreadText, { color: Brand.cyan }]}>
+                          New messages
+                        </Text>
+                        <View style={[styles.unreadLine, { backgroundColor: Brand.cyan }]} />
+                      </View>
+                    )}
+
                     <View
                       style={[
-                        styles.bubbleRow,
+                        styles.row,
                         message.mine ? styles.rowMine : styles.rowTheirs,
+                        startsRun ? styles.rowSpaced : styles.rowTight,
                       ]}>
-                      <Pressable
-                        onLongPress={
-                          canModerate
-                            ? () =>
-                                removeMessage({ messageId: message._id as Id<'messages'> }).catch(
-                                  (err) => toast.show(errorMessage(err), 'error'),
-                                )
-                            : undefined
-                        }
-                        style={[
-                          styles.bubble,
-                          message.mine
-                            ? {
-                                backgroundColor: withAlpha(Brand.cyan, 0.16),
-                                borderColor: withAlpha(Brand.cyan, 0.3),
-                              }
-                            : styles.bubbleTheirs,
-                        ]}>
-                        {!message.mine && (
-                          <View style={styles.authorRow}>
+                      {/* Avatar column: only on the first of a run, never on mine. */}
+                      {!message.mine &&
+                        (startsRun ? (
+                          <View
+                            style={[
+                              styles.avatar,
+                              {
+                                backgroundColor: withAlpha(tone, 0.16),
+                                borderColor: withAlpha(tone, 0.36),
+                              },
+                            ]}>
+                            <Text style={[styles.avatarText, { color: tone }]}>
+                              {initials(message.authorName)}
+                            </Text>
+                          </View>
+                        ) : (
+                          <View style={styles.avatarSpacer} />
+                        ))}
+
+                      <View style={styles.bubbleColumn}>
+                        {!message.mine && startsRun && (
+                          <View style={styles.identity}>
                             <Text style={[styles.author, { color: tone }]} numberOfLines={1}>
                               {message.authorName}
                             </Text>
-                            <Pill label={badge} color={tone} compact />
+                            <View
+                              style={[
+                                styles.roleTag,
+                                {
+                                  backgroundColor: withAlpha(tone, 0.14),
+                                  borderColor: withAlpha(tone, 0.32),
+                                },
+                              ]}>
+                              <Text style={[styles.roleTagText, { color: tone }]}>
+                                {isParticipant
+                                  ? (message.authorTeamCode ?? 'Participant')
+                                  : RoleTheme[role].label}
+                              </Text>
+                            </View>
                           </View>
                         )}
-                        {!message.mine && role === 'participant' && !!message.authorTeamName && (
-                          <Text style={styles.teamLine} numberOfLines={1}>
-                            {message.authorTeamName}
+
+                        {/* The team name, spelled out. This is what an organiser
+                            needs to know which table to walk to. */}
+                        {!message.mine && startsRun && isParticipant && !!message.authorTeamName && (
+                          <View style={styles.teamRow}>
+                            <MaterialCommunityIcons
+                              name="account-group-outline"
+                              size={11}
+                              color={Brand.textFaint}
+                            />
+                            <Text style={styles.teamText} numberOfLines={1}>
+                              {message.authorTeamName}
+                            </Text>
+                          </View>
+                        )}
+
+                        <Pressable
+                          onLongPress={
+                            canModerate && !message.mine
+                              ? () =>
+                                  setDeleting({ id: message._id, author: message.authorName })
+                              : undefined
+                          }
+                          delayLongPress={350}
+                          style={({ pressed }) => [
+                            styles.bubble,
+                            message.mine
+                              ? {
+                                  backgroundColor: withAlpha(Brand.cyan, 0.18),
+                                  borderColor: withAlpha(Brand.cyan, 0.32),
+                                  borderBottomRightRadius: endsRun ? 4 : Radius.lg,
+                                }
+                              : {
+                                  backgroundColor: Brand.surfaceStrong,
+                                  borderColor: Brand.borderSubtle,
+                                  borderBottomLeftRadius: endsRun ? 4 : Radius.lg,
+                                },
+                            pressed && styles.pressed,
+                          ]}>
+                          <Text style={styles.body}>{message.body}</Text>
+                        </Pressable>
+
+                        {endsRun && (
+                          <Text
+                            style={[
+                              styles.time,
+                              message.mine ? styles.timeMine : styles.timeTheirs,
+                            ]}>
+                            {timeLabel(message.createdAt)}
                           </Text>
                         )}
-                        <Text style={styles.body}>{message.body}</Text>
-                        <Text style={styles.time}>{timeLabel(message.createdAt)}</Text>
-                      </Pressable>
+                      </View>
                     </View>
                   </View>
                 );
@@ -190,26 +325,29 @@ export function ChatRoom({ bottomInset = 0 }: { bottomInset?: number }) {
           </ScrollView>
         )}
 
-        <View style={[styles.composer, { paddingBottom: insets.bottom + bottomInset + Space.sm }]}>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Message the room"
-            placeholderTextColor={Brand.textFaint}
-            style={styles.input}
-            multiline
-            maxLength={2000}
-            selectionColor={Brand.cyan}
-          />
+        <View
+          style={[styles.composer, { paddingBottom: insets.bottom + bottomInset + Space.sm }]}>
+          <View style={styles.inputWrap}>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Message the help desk"
+              placeholderTextColor={Brand.textFaint}
+              style={styles.input}
+              multiline
+              maxLength={2000}
+              selectionColor={Brand.cyan}
+            />
+          </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Send message"
-            disabled={!draft.trim() || sending}
+            disabled={!canSend}
             onPress={submit}
             style={({ pressed }) => [
               styles.send,
               {
-                backgroundColor: draft.trim() ? Brand.cyan : Brand.surfaceStrong,
+                backgroundColor: canSend ? Brand.cyan : Brand.surfaceStrong,
                 opacity: pressed ? 0.75 : 1,
               },
             ]}>
@@ -219,12 +357,33 @@ export function ChatRoom({ bottomInset = 0 }: { bottomInset?: number }) {
               <MaterialCommunityIcons
                 name="send"
                 size={18}
-                color={draft.trim() ? Brand.onAccent : Brand.textFaint}
+                color={canSend ? Brand.onAccent : Brand.textFaint}
               />
             )}
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+
+      <ConfirmDialog
+        visible={deleting !== null}
+        title="Delete this message?"
+        message={`It is removed for everyone in the room, including ${
+          deleting?.author ?? 'the sender'
+        }.`}
+        confirmLabel="Delete"
+        destructive
+        onCancel={() => setDeleting(null)}
+        onConfirm={async () => {
+          if (!deleting) return;
+          try {
+            await removeMessage({ messageId: deleting.id as Id<'messages'> });
+          } catch (error) {
+            toast.show(errorMessage(error), 'error');
+          } finally {
+            setDeleting(null);
+          }
+        }}
+      />
     </LinearGradient>
   );
 }
@@ -232,6 +391,8 @@ export function ChatRoom({ bottomInset = 0 }: { bottomInset?: number }) {
 const useStyles = makeStyles((Brand) => ({
   root: { flex: 1 },
   flex: { flex: 1 },
+  pressed: { opacity: 0.75 },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -241,13 +402,20 @@ const useStyles = makeStyles((Brand) => ({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Brand.borderSubtle,
   },
+  headerMark: {
+    width: 38,
+    height: 38,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerTitle: { color: Brand.text, fontSize: 17, fontWeight: '700' },
   headerSubtitle: { color: Brand.textFaint, fontSize: 11.5, marginTop: 2 },
 
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  messages: { padding: Space.lg, gap: Space.sm },
+  messages: { paddingHorizontal: Space.lg, paddingVertical: Space.md },
 
-  empty: { alignItems: 'center', gap: Space.sm, paddingVertical: Space.xxl },
+  empty: { alignItems: 'center', gap: Space.sm, paddingVertical: Space.xxl * 2 },
   emptyIcon: {
     width: 54,
     height: 54,
@@ -277,23 +445,58 @@ const useStyles = makeStyles((Brand) => ({
     overflow: 'hidden',
   },
 
-  bubbleRow: { flexDirection: 'row' },
+  unreadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Space.sm,
+    paddingVertical: Space.md,
+  },
+  unreadLine: { flex: 1, height: StyleSheet.hairlineWidth * 2, opacity: 0.5 },
+  unreadText: { fontSize: 10.5, fontWeight: '800', letterSpacing: 0.8 },
+
+  row: { flexDirection: 'row', alignItems: 'flex-end', gap: Space.sm },
   rowMine: { justifyContent: 'flex-end' },
   rowTheirs: { justifyContent: 'flex-start' },
+  rowSpaced: { marginTop: Space.md },
+  rowTight: { marginTop: 3 },
+
+  avatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth * 2,
+  },
+  avatarText: { fontSize: 11.5, fontWeight: '800' },
+  avatarSpacer: { width: 32 },
+
+  bubbleColumn: { maxWidth: '82%', gap: 3 },
+
+  identity: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  author: { fontSize: 12.5, fontWeight: '800', flexShrink: 1 },
+  roleTag: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: Radius.pill,
+    borderWidth: StyleSheet.hairlineWidth * 2,
+  },
+  roleTagText: { fontSize: 9.5, fontWeight: '800', letterSpacing: 0.4 },
+
+  teamRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  teamText: { color: Brand.textMuted, fontSize: 11.5, fontWeight: '600', flexShrink: 1 },
+
   bubble: {
-    maxWidth: '86%',
     paddingHorizontal: Space.md,
     paddingVertical: 10,
     borderRadius: Radius.lg,
     borderWidth: StyleSheet.hairlineWidth * 2,
-    gap: 3,
   },
-  bubbleTheirs: { backgroundColor: Brand.surfaceStrong, borderColor: Brand.borderSubtle },
-  authorRow: { flexDirection: 'row', alignItems: 'center', gap: Space.sm, flexWrap: 'wrap' },
-  author: { fontSize: 12, fontWeight: '800', flexShrink: 1 },
-  teamLine: { color: Brand.textFaint, fontSize: 10.5, marginTop: 1 },
-  body: { color: Brand.text, fontSize: 14.5, lineHeight: 20, marginTop: 2 },
-  time: { color: Brand.textFaint, fontSize: 10, alignSelf: 'flex-end' },
+  body: { color: Brand.text, fontSize: 15, lineHeight: 21 },
+
+  time: { color: Brand.textFaint, fontSize: 10 },
+  timeMine: { alignSelf: 'flex-end' },
+  timeTheirs: { alignSelf: 'flex-start' },
 
   composer: {
     flexDirection: 'row',
@@ -305,8 +508,14 @@ const useStyles = makeStyles((Brand) => ({
     borderTopColor: Brand.borderSubtle,
     backgroundColor: Brand.bgElevated,
   },
-  input: {
+  inputWrap: {
     flex: 1,
+    borderRadius: Radius.lg,
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    borderColor: Brand.borderSubtle,
+    backgroundColor: Brand.inputBg,
+  },
+  input: {
     color: Brand.text,
     fontSize: 15,
     maxHeight: 120,
@@ -314,10 +523,6 @@ const useStyles = makeStyles((Brand) => ({
     paddingHorizontal: Space.md,
     paddingTop: 11,
     paddingBottom: 11,
-    borderRadius: Radius.lg,
-    borderWidth: StyleSheet.hairlineWidth * 2,
-    borderColor: Brand.borderSubtle,
-    backgroundColor: Brand.inputBg,
   },
   send: {
     width: 44,

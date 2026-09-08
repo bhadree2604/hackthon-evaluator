@@ -95,6 +95,7 @@ async function decorate(ctx: QueryCtx, teams: Doc<"teams">[], viewer: Doc<"profi
         paymentStatus: team.paymentStatus ?? "pending",
         paymentLink: team.paymentLink ?? null,
         paymentAmount: team.paymentAmount ?? null,
+        paymentReference: team.paymentReference ?? null,
         labId: team.labId,
         labName: lab?.name ?? null,
         labBlock: lab?.block ?? null,
@@ -355,7 +356,22 @@ export const upsert = mutation({
     };
 
     if (args.teamId) {
-      await ctx.db.patch(args.teamId, fields);
+      const existing = await ctx.db.get(args.teamId);
+      if (!existing) {
+        throw new ConvexError({ code: "NOT_FOUND", message: "That team no longer exists." });
+      }
+
+      /**
+       * patch() deletes any key whose value is undefined, so a field the editor
+       * does not carry has to be written back explicitly or it is lost. The lab,
+       * the coordinator and the table are deliberately not in this list: the
+       * editor does send those, and clearing them is how a team is unassigned.
+       */
+      await ctx.db.patch(args.teamId, {
+        ...fields,
+        notes: args.notes?.trim() || existing.notes,
+        photoUrl: args.photoUrl?.trim() || existing.photoUrl,
+      });
       return args.teamId;
     }
     return ctx.db.insert("teams", { ...fields, createdAt: Date.now() });
