@@ -13,6 +13,7 @@ import { Screen, ScreenHeader } from '@/components/ui/screen';
 import { EVENT, Space } from '@/constants/brand';
 import { api } from '@/convex/_generated/api';
 import { errorMessage } from '@/lib/errors';
+import { minPasswordFor } from '@/lib/passwords';
 import { makeStyles, useColors, useRoleTheme, useThemeMode } from '@/lib/theme';
 import { useNotifications } from '@/lib/notifications';
 import { homeFor, useSession } from '@/lib/session';
@@ -24,6 +25,8 @@ export function ProfileView() {
   const router = useRouter();
   const toast = useToast();
   const { profile, labs, signOut, roles, activeRole, setActiveRole } = useSession();
+  /** Participants may use anything; staff keep the longer minimum. */
+  const minPassword = minPasswordFor(roles);
   const { mode, setMode } = useThemeMode();
   const updateProfile = useMutation(api.profiles.updateMyProfile);
   const changeMyPassword = useMutation(api.accounts.changeMyPassword);
@@ -356,7 +359,7 @@ export function ProfileView() {
               label="Save"
               accent={theme.accent}
               loading={busy}
-              disabled={newPassword.length < 8 || newPassword !== confirmPassword}
+              disabled={newPassword.length < minPassword || newPassword !== confirmPassword}
               onPress={async () => {
                 setBusy(true);
                 try {
@@ -381,7 +384,11 @@ export function ProfileView() {
           secure
           autoCapitalize="none"
           accent={theme.accent}
-          hint="At least 8 characters."
+          hint={
+            minPassword <= 1
+              ? 'Anything you will remember.'
+              : `At least ${minPassword} characters.`
+          }
         />
         <TextField
           label="Confirm"

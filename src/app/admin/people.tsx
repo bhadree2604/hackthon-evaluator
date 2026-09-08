@@ -1,5 +1,6 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useMutation, useQuery } from 'convex/react';
+import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -7,7 +8,18 @@ import { TAB_BAR_INSET } from '@/components/role-shell';
 import { Button, Segmented } from '@/components/ui/button';
 import { OptionPicker, SearchInput, TextField } from '@/components/ui/inputs';
 import { Sheet, useToast } from '@/components/ui/overlays';
-import { Avatar, Banner, Card, EmptyState, Pill, Section, withAlpha } from '@/components/ui/primitives';
+import {
+  Avatar,
+  Banner,
+  Card,
+  EmptyState,
+  Pill,
+  ProgressBar,
+  Section,
+  StatCard,
+  StatGrid,
+  withAlpha,
+} from '@/components/ui/primitives';
 import { Screen, ScreenHeader, ScreenLoading } from '@/components/ui/screen';
 import { Space, type RoleKey } from '@/constants/brand';
 import { api } from '@/convex/_generated/api';
@@ -27,6 +39,7 @@ export default function AdminPeople() {
   const RoleTheme = useRoleTheme();
   const accent = RoleTheme.admin.accent;
   const toast = useToast();
+  const router = useRouter();
   const { profile: me } = useSession();
 
   const [filter, setFilter] = useState<Filter>('all');
@@ -34,6 +47,7 @@ export default function AdminPeople() {
   const [busy, setBusy] = useState(false);
 
   const staff = useQuery(api.accounts.listStaff, {});
+  const roll = useQuery(api.accounts.rollcall, {});
   const labs = useQuery(api.labs.list, {});
 
   const createStaffAccount = useMutation(api.accounts.createStaffAccount);
@@ -41,6 +55,7 @@ export default function AdminPeople() {
   const setRoles = useMutation(api.accounts.setRoles);
   const setPersonActive = useMutation(api.profiles.setPersonActive);
   const setPersonLabs = useMutation(api.profiles.setPersonLabs);
+  const removeOrphanMembers = useMutation(api.participants.removeOrphanMembers);
 
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
@@ -121,10 +136,134 @@ export default function AdminPeople() {
         }
       />
 
+      {!!roll && (
+        <>
+          <StatGrid>
+            <StatCard
+              label="Organisers"
+              value={roll.staff.organisers}
+              sub="can run everything"
+              icon="shield-crown-outline"
+              color={accent}
+            />
+            <StatCard
+              label="Evaluators"
+              value={roll.staff.evaluators}
+              sub="can score teams"
+              icon="clipboard-check-outline"
+              color={Brand.cyan}
+            />
+            <StatCard
+              label="Coordinators"
+              value={roll.staff.coordinators}
+              sub="mark attendance"
+              icon="account-group-outline"
+              color={Brand.green}
+            />
+            <StatCard
+              label="Staff accounts"
+              value={roll.staff.people}
+              sub={
+                roll.staff.disabled > 0
+                  ? `${roll.staff.disabled} switched off`
+                  : 'all switched on'
+              }
+              icon="account-tie-outline"
+              color={Brand.lilac}
+            />
+          </StatGrid>
+
+          <Card style={styles.roll}>
+            <View style={styles.rollTop}>
+              <View style={styles.flex}>
+                <Text style={styles.rollLabel}>PARTICIPANT LOGINS</Text>
+                <Text style={styles.rollValue}>
+                  {roll.participants.withLogin}
+                  <Text style={styles.rollMax}> / {roll.participants.withEmail}</Text>
+                </Text>
+              </View>
+              <Pill
+                label={
+                  roll.participants.missing === 0
+                    ? 'All created'
+                    : `${roll.participants.missing} to create`
+                }
+                icon={roll.participants.missing === 0 ? 'check-circle' : 'account-plus-outline'}
+                color={roll.participants.missing === 0 ? Brand.green : Brand.amber}
+              />
+            </View>
+
+            <ProgressBar
+              value={roll.participants.withLogin}
+              max={Math.max(1, roll.participants.withEmail)}
+              color={roll.participants.missing === 0 ? Brand.green : accent}
+            />
+
+            <View style={styles.rollFacts}>
+              <Text style={styles.rollFact}>
+                {roll.participants.onRoster} on the roster across {roll.participants.teams} team
+                {roll.participants.teams === 1 ? '' : 's'}
+              </Text>
+              <Text style={styles.rollFact}>
+                {roll.participants.signedIn} have opened the app
+              </Text>
+              {roll.participants.noEmail > 0 && (
+                <Text style={[styles.rollFact, { color: Brand.red }]}>
+                  {roll.participants.noEmail} have no email, so they cannot be given a login
+                </Text>
+              )}
+              {roll.participants.disabled > 0 && (
+                <Text style={styles.rollFact}>
+                  {roll.participants.disabled} switched off
+                </Text>
+              )}
+              {roll.participants.orphans > 0 && (
+                <Text style={[styles.rollFact, { color: Brand.amber }]}>
+                  {roll.participants.orphans} left behind by a deleted team, not counted above
+                </Text>
+              )}
+            </View>
+
+            {roll.participants.orphans > 0 && (
+              <Button
+                label={`Clear ${roll.participants.orphans} orphaned member${
+                  roll.participants.orphans === 1 ? '' : 's'
+                }`}
+                size="sm"
+                variant="ghost"
+                icon="broom"
+                loading={busy}
+                onPress={() =>
+                  run(
+                    () => removeOrphanMembers({}),
+                    'Orphaned members cleared',
+                  )
+                }
+                full
+              />
+            )}
+
+            <Button
+              label={
+                roll.participants.missing > 0
+                  ? `Create the ${roll.participants.missing} missing logins`
+                  : 'Open participant logins'
+              }
+              size="sm"
+              variant="secondary"
+              icon="key-outline"
+              accent={accent}
+              onPress={() => router.push('/admin/participants' as never)}
+              full
+            />
+          </Card>
+        </>
+      )}
+
       <Banner
         tone="info"
         title="One email can hold several roles"
-        message="Adding an existing address as another role widens that same login instead of creating a second account."
+        message="A person counted as both an organiser and an evaluator is one login with two roles, not two accounts."
       />
 
       <SearchInput
@@ -603,6 +742,24 @@ export default function AdminPeople() {
 }
 
 const useStyles = makeStyles((Brand) => ({
+  roll: { gap: Space.md },
+  rollTop: { flexDirection: 'row', alignItems: 'center', gap: Space.md },
+  rollLabel: {
+    color: Brand.textFaint,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+  },
+  rollValue: {
+    color: Brand.text,
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -1,
+    marginTop: 2,
+  },
+  rollMax: { color: Brand.textFaint, fontSize: 15, fontWeight: '700', letterSpacing: 0 },
+  rollFacts: { gap: 3 },
+  rollFact: { color: Brand.textMuted, fontSize: 12, lineHeight: 17 },
   flex: { flex: 1 },
   list: { gap: Space.md },
   row: { flexDirection: 'row', alignItems: 'center', gap: Space.md },

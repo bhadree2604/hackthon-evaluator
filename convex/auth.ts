@@ -15,11 +15,12 @@ import authConfig from "./auth.config";
 export const APP_SCHEME = "hackfinity30";
 
 /**
- * Shortest password Better Auth will accept anywhere in the app. Kept low
- * because participants are given a default of "123"; staff accounts are held
- * to `MIN_STAFF_PASSWORD` in convex/accounts.ts.
+ * Shortest password Better Auth will accept anywhere in the app. It is 1 so a
+ * participant can pick anything they will remember while standing in a queue;
+ * staff are held to `MIN_STAFF_PASSWORD` in convex/accounts.ts, which is what
+ * actually protects the accounts that can read every team's marks.
  */
-export const MIN_PASSWORD = 3;
+export const MIN_PASSWORD = 1;
 
 /** The password every participant account is created with. */
 export const DEFAULT_PARTICIPANT_PASSWORD = "123";

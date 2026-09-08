@@ -14,6 +14,7 @@ import { EVENT, Space, type RoleKey } from '@/constants/brand';
 import { api } from '@/convex/_generated/api';
 import { getAuthClient } from '@/lib/auth-client';
 import { errorMessage } from '@/lib/errors';
+import { minPasswordFor, passwordError, passwordPlaceholder } from '@/lib/passwords';
 import { useSession } from '@/lib/session';
 import { makeStyles, useColors, useNeutralGradient, useRoleTheme } from '@/lib/theme';
 
@@ -76,9 +77,11 @@ export function AuthForm({ role }: { role: RoleKey | null }) {
   const creating = bootstrap || activating;
 
   const emailValid = EMAIL_RE.test(email.trim());
+  /** Participants may use anything they can remember; staff keep the minimum. */
+  const minPassword = minPasswordFor(role ? [role] : []);
   const canSubmit =
     emailValid &&
-    password.length >= 8 &&
+    password.length >= minPassword &&
     !busy &&
     (!creating || password === confirm) &&
     (!bootstrap || (setupKey.trim().length > 0 && name.trim().length > 1)) &&
@@ -284,16 +287,14 @@ export function AuthForm({ role }: { role: RoleKey | null }) {
           label={creating ? 'Choose a password' : 'Password'}
           value={password}
           onChangeText={setPassword}
-          placeholder="At least 8 characters"
+          placeholder={passwordPlaceholder(minPassword)}
           icon="lock-outline"
           secure
           autoCapitalize="none"
           accent={accent}
           returnKeyType={creating ? 'next' : 'go'}
           onSubmitEditing={creating ? undefined : submit}
-          error={
-            password.length > 0 && password.length < 8 ? 'Password must be 8+ characters' : null
-          }
+          error={passwordError(password, minPassword)}
         />
 
         {creating && (

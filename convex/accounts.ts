@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import { env, mutation, query } from "./_generated/server";
-import { createAuth } from "./auth";
+import { createAuth, MIN_PASSWORD } from "./auth";
 import {
   assertCanEdit,
   hasRole,
@@ -17,18 +17,28 @@ import {
 import { roleValidator, staffRoleValidator } from "./schema";
 
 /**
- * Staff hold real accounts, so they keep the longer minimum even though the
- * Better Auth floor was lowered to 3 for the participants' default password.
+ * Staff hold accounts that can read every team's marks, so they keep a real
+ * minimum even though the Better Auth floor is 1 for participants.
  */
 const MIN_STAFF_PASSWORD = 8;
 
-function assertPassword(password: string) {
-  if (password.length < MIN_STAFF_PASSWORD) {
+function assertPassword(password: string, min = MIN_STAFF_PASSWORD) {
+  if (password.length < min) {
     throw new ConvexError({
       code: "WEAK",
-      message: `Passwords must be at least ${MIN_STAFF_PASSWORD} characters.`,
+      message:
+        min <= 1
+          ? "Enter a password."
+          : `Passwords must be at least ${min} characters.`,
     });
   }
+}
+
+/** Participants may use anything; everyone else keeps the staff minimum. */
+function minimumFor(profile: Doc<"profiles">) {
+  const roles = rolesOf(profile);
+  const isStaff = roles.some((role) => role !== "participant");
+  return isStaff ? MIN_STAFF_PASSWORD : MIN_PASSWORD;
 }
 
 /**
@@ -266,7 +276,7 @@ export const setPassword = mutation({
     if (!target) throw new ConvexError({ code: "NOT_FOUND", message: "Account not found." });
 
     assertCanEdit(admin, target);
-    assertPassword(args.newPassword);
+    assertPassword(args.newPassword, minimumFor(target));
 
     await writePassword(ctx, target.authUserId, args.newPassword);
     return { email: target.email };
@@ -278,7 +288,7 @@ export const changeMyPassword = mutation({
   args: { newPassword: v.string() },
   handler: async (ctx, args) => {
     const me = await requireProfile(ctx);
-    assertPassword(args.newPassword);
+    assertPassword(args.newPassword, minimumFor(me));
     await writePassword(ctx, me.authUserId, args.newPassword);
     return null;
   },
@@ -364,5 +374,71 @@ export const listStaff = query({
         (a, b) =>
           Number(b.isMaster) - Number(a.isMaster) || a.name.localeCompare(b.name),
       );
+  },
+});
+
+/* -------------------------------------------------------------------------- */
+/* Roll call                                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Headline counts for the People screen: how many organisers, evaluators and
+ * coordinators exist, and how far the participant logins have got.
+ *
+ * The three staff numbers overlap on purpose. One email can hold several
+ * roles, so a person who is both organiser and evaluator is counted in both;
+ * `people` is the number of distinct humans behind them.
+ */
+export const rollcall = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+
+    const profiles = await ctx.db.query("profiles").collect();
+    const allMembers = await ctx.db.query("members").collect();
+    const teams = await ctx.db.query("teams").collect();
+
+    /**
+     * A member whose team has been deleted cannot be given a login and must
+     * not be counted as one that is missing. Sample rows from an early import
+     * are the usual source.
+     */
+    const teamIds = new Set(teams.map((team) => team._id));
+    const members = allMembers.filter((member) => teamIds.has(member.teamId));
+    const orphans = allMembers.length - members.length;
+
+    const staff = profiles.filter((p) => rolesOf(p).some((role) => role !== "participant"));
+    const activeStaff = staff.filter((p) => p.active);
+    const holding = (role: Role) => activeStaff.filter((p) => hasRole(p, role)).length;
+
+    const participantProfiles = profiles.filter((p) => hasRole(p, "participant"));
+    const loginEmails = new Set(participantProfiles.map((p) => p.email));
+
+    const withEmail = members.filter((m) => !!m.email);
+    const withLogin = withEmail.filter((m) => loginEmails.has(normalizeEmail(m.email ?? "")));
+
+    return {
+      staff: {
+        organisers: holding("admin"),
+        evaluators: holding("evaluator"),
+        coordinators: holding("coordinator"),
+        /** Distinct people, however many roles each of them holds. */
+        people: activeStaff.length,
+        disabled: staff.length - activeStaff.length,
+      },
+      participants: {
+        teams: teams.length,
+        onRoster: members.length,
+        withEmail: withEmail.length,
+        withLogin: withLogin.length,
+        missing: withEmail.length - withLogin.length,
+        noEmail: members.length - withEmail.length,
+        /** Has actually opened the app at least once. */
+        signedIn: participantProfiles.filter((p) => p.lastSeenAt != null).length,
+        disabled: participantProfiles.filter((p) => !p.active).length,
+        /** Members left behind by a deleted team. Not counted above. */
+        orphans,
+      },
+    };
   },
 });

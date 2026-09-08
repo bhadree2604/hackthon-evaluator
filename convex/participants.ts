@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
-import { createAuth, DEFAULT_PARTICIPANT_PASSWORD } from "./auth";
+import { createAuth, DEFAULT_PARTICIPANT_PASSWORD, MIN_PASSWORD } from "./auth";
 import { normalizeEmail, requireAdmin, requireOwnTeam } from "./lib/guards";
 
 const PRESENT = new Set(["present", "late"]);
@@ -44,16 +44,10 @@ export const provisionAccounts = mutation({
     const admin = await requireAdmin(ctx);
 
     const prefix = args.passwordPrefix.trim();
-    if (prefix.length < 6) {
+    if (prefix.length < MIN_PASSWORD) {
       throw new ConvexError({
         code: "WEAK",
-        message: "Use a prefix of at least 6 characters; Better Auth needs 8+ in total.",
-      });
-    }
-    if (args.mode === "shared" && prefix.length < 8) {
-      throw new ConvexError({
-        code: "WEAK",
-        message: "A shared password must be at least 8 characters.",
+        message: "Enter a password to give them.",
       });
     }
 
@@ -649,5 +643,36 @@ export const resetToDefaultPassword = mutation({
     }
 
     return { email: target.email, password: DEFAULT_PARTICIPANT_PASSWORD };
+  },
+});
+
+/**
+ * Deletes members whose team no longer exists, along with any attendance they
+ * carry. Sample rows from an early import are the usual source, and they can
+ * never be given a login because there is no team behind them.
+ */
+export const removeOrphanMembers = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+
+    const teams = await ctx.db.query("teams").collect();
+    const teamIds = new Set(teams.map((team) => team._id));
+
+    let removed = 0;
+    for (const member of await ctx.db.query("members").collect()) {
+      if (teamIds.has(member.teamId)) continue;
+
+      const marks = await ctx.db
+        .query("attendance")
+        .withIndex("by_member", (q) => q.eq("memberId", member._id))
+        .collect();
+      for (const mark of marks) await ctx.db.delete(mark._id);
+
+      await ctx.db.delete(member._id);
+      removed++;
+    }
+
+    return { removed };
   },
 });
