@@ -37,6 +37,10 @@ function ParticipantTabs() {
         options={{ title: 'Updates', tabBarIcon: tabIcon('bullhorn-outline') }}
       />
       <Tabs.Screen
+        name="results"
+        options={{ title: 'Results', tabBarIcon: tabIcon('trophy-outline') }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{ title: 'Profile', tabBarIcon: tabIcon('account-circle-outline') }}
       />

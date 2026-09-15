@@ -22,6 +22,7 @@ import type * as lib_roster from "../lib/roster.js";
 import type * as notifications from "../notifications.js";
 import type * as participants from "../participants.js";
 import type * as profiles from "../profiles.js";
+import type * as results from "../results.js";
 import type * as rounds from "../rounds.js";
 import type * as scores from "../scores.js";
 import type * as sessions from "../sessions.js";
@@ -50,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   notifications: typeof notifications;
   participants: typeof participants;
   profiles: typeof profiles;
+  results: typeof results;
   rounds: typeof rounds;
   scores: typeof scores;
   sessions: typeof sessions;

@@ -5,7 +5,6 @@ import { mutation, query } from "./_generated/server";
 import {
   requireAdmin,
   requireEvaluator,
-  requireOwnTeam,
   requireRole,
   requireStaff,
   type Ctx,
@@ -81,7 +80,6 @@ export const mySheet = query({
         description: round.description ?? null,
         weight: round.weight,
         status: round.status,
-        published: round.published,
       },
       criteria: criteria.map((c) => ({
         key: c.key,
@@ -246,12 +244,21 @@ export const myProgress = query({
 /**
  * Every counted round's result for every team, plus the cumulative.
  *
- * `cumulativePercent` divides by the weight of the rounds a team has actually
- * been scored in, so the board reads correctly while the event is still
- * running. `strictPercent` treats an unscored round as zero, which is the
- * number to rank on once every round is locked.
+ * The cumulative is the rounds added together, not averaged:
+ *
+ *   a sheet          Σ (mark × criterion weight)          → 0 … maxTotal
+ *   a round's mark   mean of the submitted sheets          → 0 … maxTotal
+ *   the cumulative   Σ (round mark × round weight)         → 0 … maxPoints
+ *
+ * With ten criteria of ten marks and three rounds of weight one, that is a
+ * board out of 300 where each round contributes up to 100.
+ *
+ * `cumulativePoints` treats a round the team was never scored in as zero,
+ * which is the number the final standings rank on. `scoredPercent` divides by
+ * the weight of the rounds actually scored, so the board still reads sensibly
+ * while the event is only part way through.
  */
-async function standings(ctx: Ctx, viewerId: Id<"profiles">) {
+export async function computeStandings(ctx: Ctx, viewerId: Id<"profiles"> | null) {
   const rounds = await countedRounds(ctx);
   const criteria = await activeCriteria(ctx);
   const maxTotal = maxTotalFor(criteria);
@@ -265,10 +272,12 @@ async function standings(ctx: Ctx, viewerId: Id<"profiles">) {
     sheetsByRound.set(round._id, await roundScores(ctx, round._id));
   }
 
-  const totalWeight = rounds.reduce((sum, r) => sum + r.weight, 0);
+  /** The most a team can hold once every round is in. */
+  const maxPoints = rounds.reduce((sum, r) => sum + maxTotal * r.weight, 0);
 
   const rows = teams.map((team) => {
-    let weightedSum = 0;
+    let cumulativePoints = 0;
+    let weightedPercent = 0;
     let scoredWeight = 0;
     let sheets = 0;
     let scoredByMe = false;
@@ -279,10 +288,19 @@ async function standings(ctx: Ctx, viewerId: Id<"profiles">) {
       const percent = average(submitted.map((s) => s.percent));
 
       sheets += submitted.length;
-      if (all.some((s) => s.evaluatorId === viewerId && s.submitted)) scoredByMe = true;
+      if (viewerId && all.some((s) => s.evaluatorId === viewerId && s.submitted)) {
+        scoredByMe = true;
+      }
 
-      if (percent !== null) {
-        weightedSum += percent * round.weight;
+      /**
+       * Taken from the percentage rather than the stored total, so a sheet
+       * written before the rubric grew still lands on the current scale.
+       */
+      const points = percent === null ? null : (percent / 100) * maxTotal;
+
+      if (percent !== null && points !== null) {
+        cumulativePoints += points * round.weight;
+        weightedPercent += percent * round.weight;
         scoredWeight += round.weight;
       }
 
@@ -292,8 +310,8 @@ async function standings(ctx: Ctx, viewerId: Id<"profiles">) {
         order: round.order,
         weight: round.weight,
         status: round.status,
-        published: round.published,
         percent,
+        points,
         total: average(submitted.map((s) => s.total)),
         maxTotal,
         sheets: submitted.length,
@@ -320,6 +338,8 @@ async function standings(ctx: Ctx, viewerId: Id<"profiles">) {
       projectTitle: team.projectTitle ?? null,
       labName: team.labId ? (labById.get(team.labId)?.name ?? null) : null,
       track: team.track ?? null,
+      /** Breaks a tie when two teams finish level on everything else. */
+      registeredAt: team.registeredAt ?? null,
       perRound,
       breakdown,
       sheets,
@@ -327,8 +347,12 @@ async function standings(ctx: Ctx, viewerId: Id<"profiles">) {
       scoredByMe,
       roundsScored: perRound.filter((r) => r.percent !== null).length,
       roundsCounted: rounds.length,
-      cumulativePercent: scoredWeight > 0 ? weightedSum / scoredWeight : null,
-      strictPercent: totalWeight > 0 ? weightedSum / totalWeight : null,
+      /** The board number: rounds added up, an unscored round counting zero. */
+      cumulativePoints,
+      maxPoints,
+      cumulativePercent: maxPoints > 0 ? (cumulativePoints / maxPoints) * 100 : null,
+      /** Mid-event view: only the rounds this team has actually been scored in. */
+      scoredPercent: scoredWeight > 0 ? weightedPercent / scoredWeight : null,
     };
   });
 
@@ -339,11 +363,38 @@ async function standings(ctx: Ctx, viewerId: Id<"profiles">) {
       order: r.order,
       weight: r.weight,
       status: r.status,
-      published: r.published,
+      maxTotal,
     })),
     maxTotal,
+    maxPoints,
     rows,
   };
+}
+
+type Standing = Awaited<ReturnType<typeof computeStandings>>["rows"][number];
+
+/**
+ * Final ordering. Cumulative points decide it; a tie falls to the later round,
+ * because the last round is the one the teams demo in, then to whoever
+ * registered first so the result is always decided.
+ */
+export function compareStandings(a: Standing, b: Standing) {
+  if (b.cumulativePoints !== a.cumulativePoints) {
+    return b.cumulativePoints - a.cumulativePoints;
+  }
+
+  // Latest round first: winning the final demo breaks the tie.
+  for (let i = a.perRound.length - 1; i >= 0; i--) {
+    const mine = a.perRound[i]?.percent ?? -1;
+    const theirs = b.perRound[i]?.percent ?? -1;
+    if (mine !== theirs) return theirs - mine;
+  }
+
+  const registeredA = a.registeredAt ?? Number.MAX_SAFE_INTEGER;
+  const registeredB = b.registeredAt ?? Number.MAX_SAFE_INTEGER;
+  if (registeredA !== registeredB) return registeredA - registeredB;
+
+  return a.code.localeCompare(b.code, undefined, { numeric: true });
 }
 
 /**
@@ -354,27 +405,40 @@ export const leaderboard = query({
   args: { roundId: v.optional(v.id("rounds")), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const profile = await requireRole(ctx, ["evaluator", "admin"]);
-    const { rounds, maxTotal, rows } = await standings(ctx, profile._id);
+    const { rounds, maxTotal, maxPoints, rows } = await computeStandings(ctx, profile._id);
+    const roundId = args.roundId;
 
     const ranked = rows
       .map((row) => {
-        if (!args.roundId) {
-          return { ...row, sortKey: row.cumulativePercent, roundPercent: null as number | null };
-        }
-        const round = row.perRound.find((r) => r.roundId === args.roundId);
-        return { ...row, sortKey: round?.percent ?? null, roundPercent: round?.percent ?? null };
+        const round = roundId ? row.perRound.find((r) => r.roundId === roundId) : undefined;
+        return {
+          ...row,
+          roundPercent: round?.percent ?? null,
+          roundPoints: round?.points ?? null,
+          sortKey: roundId ? (round?.percent ?? null) : row.cumulativePoints,
+        };
       })
-      .sort(
-        (a, b) =>
-          (b.sortKey ?? -1) - (a.sortKey ?? -1) ||
-          b.sheets - a.sheets ||
-          a.code.localeCompare(b.code, undefined, { numeric: true }),
-      )
-      .map((row, index) => ({ ...row, rank: row.sortKey === null ? null : index + 1 }));
+      .sort((a, b) => {
+        // A single round ranks on that round; the cumulative uses the tie-breaks.
+        if (roundId) {
+          return (
+            (b.sortKey ?? -1) - (a.sortKey ?? -1) ||
+            b.sheets - a.sheets ||
+            a.code.localeCompare(b.code, undefined, { numeric: true })
+          );
+        }
+        return compareStandings(a, b);
+      })
+      .map((row, index) => ({
+        ...row,
+        // An unscored team is listed but never given a placing.
+        rank: row.scored ? index + 1 : null,
+      }));
 
     return {
       rounds,
       maxTotal,
+      maxPoints,
       roundId: args.roundId ?? null,
       rows: args.limit ? ranked.slice(0, args.limit) : ranked,
     };
@@ -411,7 +475,6 @@ export const teamRounds = query({
           order: round.order,
           weight: round.weight,
           status: round.status,
-          published: round.published,
           maxTotal,
           percent: canSeeMarks ? average(submitted.map((s) => s.percent)) : null,
           total: canSeeMarks ? average(submitted.map((s) => s.total)) : null,
@@ -470,74 +533,6 @@ export const panel = query({
         };
       }),
     );
-  },
-});
-
-/* -------------------------------------------------------------------------- */
-/* Participant                                                                 */
-/* -------------------------------------------------------------------------- */
-
-/**
- * A team's own results. Only published rounds are ever returned, so an
- * organiser controls exactly when marks become visible.
- */
-export const myTeamResults = query({
-  args: {},
-  handler: async (ctx) => {
-    const { team } = await requireOwnTeam(ctx);
-
-    const rounds = (await ctx.db.query("rounds").withIndex("by_order").collect()).filter(
-      (r) => r.published && r.status !== "draft",
-    );
-    const criteria = await activeCriteria(ctx);
-    const maxTotal = maxTotalFor(criteria);
-
-    let weightedSum = 0;
-    let scoredWeight = 0;
-
-    const rows = await Promise.all(
-      rounds.map(async (round) => {
-        const submitted = (
-          await ctx.db
-            .query("scores")
-            .withIndex("by_round_team", (q) => q.eq("roundId", round._id).eq("teamId", team._id))
-            .collect()
-        ).filter((s) => s.submitted);
-
-        const percent = average(submitted.map((s) => s.percent));
-        if (percent !== null) {
-          weightedSum += percent * round.weight;
-          scoredWeight += round.weight;
-        }
-
-        return {
-          roundId: round._id,
-          name: round.name,
-          weight: round.weight,
-          percent,
-          total: average(submitted.map((s) => s.total)),
-          maxTotal,
-          // Individual evaluator identities stay private to the panel.
-          evaluatorCount: submitted.length,
-          breakdown: criteria.map((c) => ({
-            key: c.key,
-            label: c.label,
-            maxScore: c.maxScore,
-            average: average(
-              submitted
-                .map((s) => s.values.find((entry) => entry.key === c.key)?.value)
-                .filter((value): value is number => typeof value === "number"),
-            ),
-          })),
-        };
-      }),
-    );
-
-    return {
-      rounds: rows,
-      cumulativePercent: scoredWeight > 0 ? weightedSum / scoredWeight : null,
-      published: rows.length > 0,
-    };
   },
 });
 

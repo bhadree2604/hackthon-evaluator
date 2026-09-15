@@ -331,6 +331,8 @@ export default defineSchema({
     deliveredTo: v.number(),
     /** Devices the push service actually accepted, filled in after sending. */
     pushedTo: v.optional(v.number()),
+    /** Devices Expo refused, so a partial delivery is visible rather than silent. */
+    pushFailed: v.optional(v.number()),
   })
     .index("by_createdAt", ["createdAt"])
     .index("by_audience", ["audience"]),

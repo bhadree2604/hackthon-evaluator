@@ -30,9 +30,9 @@ import { makeStyles, useColors, useRoleTheme } from '@/lib/theme';
  * Evaluation rounds.
  *
  * Every round is scored on the same rubric; a round owns its own sheets and
- * its weight in the cumulative. Status controls the evaluators, `published`
- * controls the participants, and the two are deliberately separate so marks
- * can be checked before anyone sees them.
+ * its weight in the cumulative. A round's status controls the evaluators only.
+ * Teams are never shown a single round: the results go out once, at the end,
+ * from the card at the top of this screen.
  */
 
 const ROUND_COUNTS = [3, 4, 5, 6];
@@ -48,7 +48,6 @@ export default function AdminRounds() {
   const seed = useMutation(api.rounds.seed);
   const upsert = useMutation(api.rounds.upsert);
   const setStatus = useMutation(api.rounds.setStatus);
-  const setPublished = useMutation(api.rounds.setPublished);
   const remove = useMutation(api.rounds.remove);
 
   const [busy, setBusy] = useState(false);
@@ -116,6 +115,8 @@ export default function AdminRounds() {
           }
         />
       )}
+
+      <FinalResults accent={accent} />
 
       {data.rounds.length === 0 ? (
         <EmptyState
@@ -230,13 +231,8 @@ export default function AdminRounds() {
                       color={tone}
                       compact
                     />
-                    <Pill
-                      label={round.published ? 'Marks visible to teams' : 'Marks hidden'}
-                      icon={round.published ? 'eye-outline' : 'eye-off-outline'}
-                      color={round.published ? Brand.blue : Brand.textFaint}
-                      compact
-                    />
                     <Pill label={`Weight ×${round.weight}`} color={Brand.lilac} compact />
+                    <Pill label={`out of ${data.maxTotal}`} color={Brand.textFaint} compact />
                   </View>
 
                   <View style={styles.coverage}>
@@ -291,24 +287,6 @@ export default function AdminRounds() {
                         style={styles.flex}
                       />
                     )}
-                    <Button
-                      label={round.published ? 'Hide marks' : 'Publish marks'}
-                      size="sm"
-                      variant="secondary"
-                      icon={round.published ? 'eye-off-outline' : 'eye-outline'}
-                      accent={Brand.blue}
-                      loading={busy}
-                      onPress={() =>
-                        run(
-                          () =>
-                            setPublished({ roundId: round._id, published: !round.published }),
-                          round.published
-                            ? `${round.name} hidden from teams`
-                            : `${round.name} published to teams`,
-                        )
-                      }
-                      style={styles.flex}
-                    />
                     <IconButton
                       icon="trash-can-outline"
                       accessibilityLabel={`Delete ${round.name}`}
@@ -426,8 +404,228 @@ export default function AdminRounds() {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The one switch that releases the marks.
+ *
+ * Teams see nothing until this is on, and when it goes on they see everything
+ * at once: their cumulative, the rounds behind it and the whole leaderboard.
+ * Publishing is blocked while a round is still open or a team has a round with
+ * no marks, because either would rank someone against a zero they never earned.
+ */
+function FinalResults({ accent }: { accent: string }) {
+  const Brand = useColors();
+  const styles = useStyles();
+  const toast = useToast();
+
+  const state = useQuery(api.results.readiness, {});
+  const setPublished = useMutation(api.results.setPublished);
+  const [confirming, setConfirming] = useState<'publish' | 'hide' | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (state === undefined) return null;
+
+  const blockers: string[] = [];
+  if (state.roundCount === 0) blockers.push('No rounds have been created yet.');
+  if (state.openRounds.length > 0) {
+    blockers.push(
+      `${state.openRounds.join(', ')} ${
+        state.openRounds.length === 1 ? 'is' : 'are'
+      } still open, so marks could still change.`,
+    );
+  }
+  if (state.incompleteCount > 0) {
+    blockers.push(
+      `${state.incompleteCount} team${
+        state.incompleteCount === 1 ? '' : 's'
+      } have a round with no marks: ${state.incomplete
+        .slice(0, 4)
+        .map((team) => team.code)
+        .join(', ')}${state.incompleteCount > 4 ? ' and more' : ''}.`,
+    );
+  }
+
+  async function apply(published: boolean) {
+    setBusy(true);
+    try {
+      const result = await setPublished({ published });
+      toast.show(
+        result.published
+          ? `Results are out. ${result.announced} participants notified.`
+          : 'Results hidden from teams again.',
+        'success',
+      );
+      setConfirming(null);
+    } catch (error) {
+      toast.show(errorMessage(error), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section title="Final results" hint="One release, at the end, for every team at once.">
+      <Card style={styles.publishCard}>
+        <View style={styles.publishTop}>
+          <View
+            style={[
+              styles.publishMark,
+              {
+                backgroundColor: withAlpha(state.published ? Brand.green : Brand.textFaint, 0.14),
+              },
+            ]}>
+            <MaterialCommunityIcons
+              name={state.published ? 'trophy' : 'trophy-outline'}
+              size={22}
+              color={state.published ? Brand.green : Brand.textFaint}
+            />
+          </View>
+          <View style={styles.flex}>
+            <Text style={styles.publishTitle}>
+              {state.published ? 'Published to every team' : 'Not published'}
+            </Text>
+            <Text style={styles.publishHint}>
+              {state.published
+                ? 'Teams can see their cumulative, every round behind it, and the leaderboard.'
+                : 'Teams see nothing at all until you release the results.'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.checkList}>
+          <Check
+            ok={state.roundCount > 0 && state.openRounds.length === 0}
+            label={
+              state.roundCount === 0
+                ? 'No rounds yet'
+                : state.openRounds.length === 0
+                  ? `${state.roundCount} rounds, all closed to scoring`
+                  : `${state.openRounds.length} of ${state.roundCount} rounds still open`
+            }
+          />
+          <Check
+            ok={state.incompleteCount === 0 && state.teamCount > 0}
+            label={`${state.teamsFullyScored} of ${state.teamCount} teams scored in every round`}
+          />
+          <Check
+            ok={state.sheets > 0}
+            label={`${state.sheets} submitted sheet${state.sheets === 1 ? '' : 's'} from ${
+              state.evaluatorCount
+            } evaluator${state.evaluatorCount === 1 ? '' : 's'}`}
+          />
+        </View>
+
+        {state.preview.length > 0 && (
+          <View style={styles.preview}>
+            <Text style={styles.previewLabel}>
+              TOP OF THE BOARD · OUT OF {state.maxPoints}
+            </Text>
+            {state.preview.map((team) => (
+              <View key={team.code} style={styles.previewRow}>
+                <Text style={styles.previewRank}>{team.rank ?? '–'}</Text>
+                <Text style={styles.previewName} numberOfLines={1}>
+                  {team.name}
+                </Text>
+                <Text style={styles.previewCode}>{team.code}</Text>
+                <Text style={[styles.previewPoints, { color: accent }]}>
+                  {Math.round(team.points * 10) / 10}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {!state.published && blockers.length > 0 && (
+          <Banner
+            tone="warn"
+            title="Not ready to publish"
+            message={blockers.join(' ')}
+          />
+        )}
+
+        <Button
+          label={state.published ? 'Hide the results again' : 'Publish final results'}
+          icon={state.published ? 'eye-off-outline' : 'trophy'}
+          variant={state.published ? 'secondary' : 'primary'}
+          accent={state.published ? Brand.amber : Brand.green}
+          size="lg"
+          full
+          loading={busy}
+          disabled={!state.published && !state.ready}
+          onPress={() => setConfirming(state.published ? 'hide' : 'publish')}
+        />
+      </Card>
+
+      <ConfirmDialog
+        visible={confirming !== null}
+        title={confirming === 'hide' ? 'Hide the results?' : 'Publish the final results?'}
+        message={
+          confirming === 'hide'
+            ? 'Every team loses sight of its marks and the leaderboard until you publish again.'
+            : `All ${state.teamCount} teams see their cumulative out of ${state.maxPoints}, the rounds behind it and the full standings. Everyone is notified straight away.`
+        }
+        confirmLabel={confirming === 'hide' ? 'Hide' : 'Publish'}
+        destructive={confirming === 'hide'}
+        loading={busy}
+        onCancel={() => setConfirming(null)}
+        onConfirm={() => apply(confirming === 'publish')}
+      />
+    </Section>
+  );
+}
+
+function Check({ ok, label }: { ok: boolean; label: string }) {
+  const Brand = useColors();
+  const styles = useStyles();
+  return (
+    <View style={styles.checkRow}>
+      <MaterialCommunityIcons
+        name={ok ? 'check-circle' : 'alert-circle-outline'}
+        size={15}
+        color={ok ? Brand.green : Brand.amber}
+      />
+      <Text style={styles.checkText}>{label}</Text>
+    </View>
+  );
+}
+
 const useStyles = makeStyles((Brand) => ({
   flex: { flex: 1 },
+
+  publishCard: { gap: Space.lg },
+  publishTop: { flexDirection: 'row', alignItems: 'center', gap: Space.md },
+  publishMark: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  publishTitle: { color: Brand.text, fontSize: 15.5, fontWeight: '700' },
+  publishHint: { color: Brand.textMuted, fontSize: 12, lineHeight: 17, marginTop: 3 },
+
+  checkList: { gap: 7 },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: Space.sm },
+  checkText: { color: Brand.textDim, fontSize: 12.5, flex: 1, lineHeight: 17 },
+
+  preview: { gap: 5 },
+  previewLabel: {
+    color: Brand.textFaint,
+    fontSize: 9.5,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  previewRow: { flexDirection: 'row', alignItems: 'center', gap: Space.sm },
+  previewRank: {
+    color: Brand.textFaint,
+    fontSize: 12,
+    fontWeight: '800',
+    width: 16,
+  },
+  previewName: { color: Brand.text, fontSize: 13, fontWeight: '700', flex: 1 },
+  previewCode: { color: Brand.textFaint, fontSize: 10.5 },
+  previewPoints: { fontSize: 13, fontWeight: '800', minWidth: 46, textAlign: 'right' },
   pressed: { opacity: 0.65 },
 
   seedRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Space.sm, justifyContent: 'center' },

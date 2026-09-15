@@ -235,6 +235,19 @@ export function attendanceStatusMeta(c: Colors): Record<
   };
 }
 
+/**
+ * Gold, silver and bronze for the first three places.
+ *
+ * The light palette darkens all three: the metallic tones that glow against
+ * the dark background are unreadable as text on paper white.
+ */
+export function medalColours(isDark: boolean): [string, string, string] {
+  return isDark ? ['#f7c948', '#c9d4e4', '#d8894b'] : ['#b45309', '#64748b', '#9a5b2d'];
+}
+
+/** Place names for the podium, indexed by rank - 1. */
+export const PLACES = ['1st', '2nd', '3rd'] as const;
+
 export type PaymentStatus = 'paid' | 'pending' | 'failed' | 'waived';
 
 export function paymentStatusMeta(c: Colors): Record<

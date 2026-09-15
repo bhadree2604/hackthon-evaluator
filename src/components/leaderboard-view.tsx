@@ -9,7 +9,7 @@ import { Segmented } from '@/components/ui/button';
 import { SearchInput } from '@/components/ui/inputs';
 import { Card, EmptyState, Pill, ProgressBar, withAlpha } from '@/components/ui/primitives';
 import { Screen, ScreenHeader, ScreenLoading } from '@/components/ui/screen';
-import { Radius, Space } from '@/constants/brand';
+import { medalColours, Radius, Space } from '@/constants/brand';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { makeStyles, useColors, useThemeMode } from '@/lib/theme';
@@ -22,11 +22,6 @@ import { makeStyles, useColors, useThemeMode } from '@/lib/theme';
  * round instead ranks that round on its own. A row opens to show where the
  * marks came from, round by round.
  */
-
-/** Gold, silver, bronze. Silver needs darkening to stay visible on white. */
-function medalColours(isDark: boolean) {
-  return isDark ? ['#f7c948', '#c9d4e4', '#d8894b'] : ['#b45309', '#64748b', '#9a5b2d'];
-}
 
 type Filter = 'all' | 'scored' | 'pending';
 
@@ -192,6 +187,8 @@ export function LeaderboardView({
           ) : (
             rows.map((row) => {
               const percent = roundId ? row.roundPercent : row.cumulativePercent;
+              const points = roundId ? row.roundPoints : row.cumulativePoints;
+              const outOf = roundId ? board.maxTotal : board.maxPoints;
               const isOpen = expanded === row.teamId;
               const medal = row.rank !== null && row.rank <= 3 ? medals[row.rank - 1] : null;
 
@@ -236,11 +233,13 @@ export function LeaderboardView({
                       <Text
                         style={[
                           styles.score,
-                          { color: percent === null ? Brand.textFaint : accent },
+                          { color: points === null ? Brand.textFaint : accent },
                         ]}>
-                        {percent === null ? '-' : `${Math.round(percent)}%`}
+                        {points === null ? '–' : Math.round(points * 10) / 10}
+                        <Text style={styles.scoreMax}> / {outOf}</Text>
                       </Text>
                       <Text style={styles.scoreSub}>
+                        {percent === null ? '' : `${Math.round(percent)}% · `}
                         {row.sheets} sheet{row.sheets === 1 ? '' : 's'}
                       </Text>
                     </View>
@@ -361,8 +360,9 @@ export function LeaderboardView({
 
           {!roundId && (
             <Text style={styles.footnote}>
-              A team is ranked on the rounds it has actually been scored in, so the board reads
-              correctly mid-event. Once every round is locked, those numbers are the final ones.
+              Every round&apos;s mark is the average of its submitted sheets, and the cumulative
+              adds those rounds together out of {board.maxPoints}. A round a team has not been
+              scored in yet counts as zero, so the board only settles once every round is in.
             </Text>
           )}
         </>
@@ -404,6 +404,7 @@ const useStyles = makeStyles((Brand) => ({
   teamMeta: { color: Brand.textFaint, fontSize: 11.5, marginTop: 2 },
   scoreBox: { alignItems: 'flex-end' },
   score: { fontSize: 18, fontWeight: '800', letterSpacing: -0.5 },
+  scoreMax: { color: Brand.textFaint, fontSize: 11, fontWeight: '700', letterSpacing: 0 },
   scoreSub: { color: Brand.textFaint, fontSize: 10.5 },
 
   roundStrip: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },

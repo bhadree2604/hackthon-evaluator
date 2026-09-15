@@ -5,7 +5,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
-import { ScoreStepper, TextField } from '@/components/ui/inputs';
+import { TextField } from '@/components/ui/inputs';
+import { ScoreSlider } from '@/components/ui/score-slider';
 import { ConfirmDialog, useToast } from '@/components/ui/overlays';
 import {
   Banner,
@@ -298,8 +299,10 @@ function RoundSheet({
         <ProgressBar value={percent} color={accent} />
         <Text style={styles.tallyHint}>
           {sheet.round.weight === 1
-            ? 'This round counts once towards the cumulative.'
-            : `This round is weighted ×${sheet.round.weight} in the cumulative.`}
+            ? `This round adds up to ${sheet.maxTotal} towards the team's cumulative total.`
+            : `Weighted ×${sheet.round.weight}, so this round adds up to ${
+                sheet.maxTotal * sheet.round.weight
+              } towards the cumulative.`}
         </Text>
       </Card>
 
@@ -317,10 +320,11 @@ function RoundSheet({
             )}
           </View>
 
-          <ScoreStepper
+          <ScoreSlider
             value={values[criterion.key] ?? null}
             max={criterion.maxScore}
             accent={accent}
+            disabled={!sheet.editable}
             onChange={(value) =>
               setValues((current) => ({ ...current, [criterion.key]: value }))
             }

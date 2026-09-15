@@ -30,10 +30,16 @@ type NotificationsValue = {
   pushToken: string | null;
   /** False when the build has no EAS project id, so remote push is unavailable. */
   remotePushAvailable: boolean;
+  /**
+   * True only once this phone actually holds a push token. Until then a closed
+   * app hears nothing, whatever the permission says.
+   */
+  remotePushReady: boolean;
   requestPermission: () => Promise<boolean>;
   /** Detaches this phone from the current account. Call before signing out. */
   releaseDevice: () => Promise<void>;
-  sendTestPush: () => Promise<void>;
+  /** Sends a real push from the server, the same path an announcement takes. */
+  sendTestPush: () => Promise<{ devices: number }>;
   alertNow: (
     title: string,
     body: string,
@@ -75,9 +81,10 @@ async function ensureChannels() {
 
 export function NotificationsProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const { status, profile } = useSession();
+  const { status, profile, roles } = useSession();
   const registerPushToken = useMutation(api.notifications.registerPushToken);
   const unregisterPushToken = useMutation(api.notifications.unregisterPushToken);
+  const requestTestPush = useMutation(api.notifications.sendTest);
 
   const [permission, setPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown');
   const [pushToken, setPushToken] = useState<string | null>(null);
@@ -133,13 +140,16 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     registered.current = null;
   }, [pushToken, unregisterPushToken]);
 
+  /**
+   * Goes through Expo and back down to this phone, so it proves the whole
+   * chain rather than just that the app can raise a banner on itself. Lock the
+   * phone before pressing it and the answer is unambiguous.
+   */
   const sendTestPush = useCallback(async () => {
-    await alertNow(
-      'Test alert',
-      'If you can see and feel this, notifications are working on this phone.',
-      true,
-    );
-  }, [alertNow]);
+    const result = await requestTestPush({});
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    return result;
+  }, [requestTestPush]);
 
   const requestPermission = useCallback(async () => {
     if (Platform.OS === 'web') return false;
@@ -204,20 +214,26 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         | undefined;
       if (!data?.type) return;
 
+      // Read from every role the account holds, not the legacy primary one.
+      const isParticipant = roles.includes('participant');
+
       if (data.type === 'chat') {
-        router.push(profile?.role === 'participant' ? '/participant/chat' : '/admin/chats');
+        router.push(isParticipant ? '/participant/chat' : '/admin/chats');
       } else if (data.type === 'announcement') {
-        if (profile?.role === 'participant') router.push('/participant/updates');
+        if (isParticipant) router.push('/participant/updates');
+      } else if (data.type === 'results') {
+        if (isParticipant) router.push('/participant/results' as never);
       }
     });
     return () => sub.remove();
-  }, [profile?.role, router]);
+  }, [roles, router]);
 
   const value = useMemo<NotificationsValue>(
     () => ({
       permission,
       pushToken,
       remotePushAvailable,
+      remotePushReady: pushToken !== null,
       requestPermission,
       releaseDevice,
       sendTestPush,

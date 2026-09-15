@@ -3,7 +3,13 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin, requireStaff } from "./lib/guards";
 
-/** Default Hackfinity 3.0 rubric, seeded on first admin visit. */
+/**
+ * The Hackfinity 3.0 rubric: ten criteria, ten marks each, so a full sheet is
+ * worth 100 and a sheet's raw total reads straight off as a percentage.
+ *
+ * `key` is what every score row stores, so a key must never change once
+ * scoring has started. Labels and descriptions are safe to edit in Setup.
+ */
 export const DEFAULT_CRITERIA = [
   {
     key: "innovation",
@@ -40,6 +46,41 @@ export const DEFAULT_CRITERIA = [
     maxScore: 10,
     weight: 1,
   },
+  {
+    key: "technical_depth",
+    label: "Technical depth",
+    description: "Engineering difficulty and the quality of the architecture behind the demo.",
+    maxScore: 10,
+    weight: 1,
+  },
+  {
+    key: "user_experience",
+    label: "User experience",
+    description: "How it looks, and how easily a stranger could use it without being shown.",
+    maxScore: 10,
+    weight: 1,
+  },
+  {
+    key: "problem_fit",
+    label: "Problem fit",
+    description: "How closely the build answers the problem statement the team signed up for.",
+    maxScore: 10,
+    weight: 1,
+  },
+  {
+    key: "scalability",
+    label: "Scalability",
+    description: "Whether it holds up with more users, more data and real load.",
+    maxScore: 10,
+    weight: 1,
+  },
+  {
+    key: "teamwork",
+    label: "Teamwork",
+    description: "Every member contributing, with a clear division of the work.",
+    maxScore: 10,
+    weight: 1,
+  },
 ] as const;
 
 export const list = query({
@@ -51,18 +92,32 @@ export const list = query({
   },
 });
 
+/**
+ * Tops the rubric up to the ten defaults.
+ *
+ * Only keys that are missing are inserted, so a criterion an organiser has
+ * already renamed, reweighted or switched off is left exactly as it is. Safe
+ * to press twice, and safe to press after scoring has begun.
+ */
 export const seedDefaults = mutation({
   args: {},
   handler: async (ctx) => {
     await requireAdmin(ctx);
-    const existing = await ctx.db.query("criteria").first();
-    if (existing) return { seeded: 0 };
 
-    let order = 0;
-    for (const c of DEFAULT_CRITERIA) {
-      await ctx.db.insert("criteria", { ...c, order: order++, active: true });
+    const existing = await ctx.db.query("criteria").collect();
+    const known = new Set(existing.map((c) => c.key));
+
+    // New rows go after whatever is already there, in default order.
+    let order = existing.reduce((highest, c) => Math.max(highest, c.order + 1), 0);
+
+    let seeded = 0;
+    for (const criterion of DEFAULT_CRITERIA) {
+      if (known.has(criterion.key)) continue;
+      await ctx.db.insert("criteria", { ...criterion, order: order++, active: true });
+      seeded++;
     }
-    return { seeded: DEFAULT_CRITERIA.length };
+
+    return { seeded, total: existing.length + seeded };
   },
 });
 

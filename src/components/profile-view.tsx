@@ -244,7 +244,7 @@ export function ProfileView() {
                   : !remotePushAvailable
                     ? 'This build cannot receive alerts while fully closed.'
                     : pushToken
-                      ? 'Announcements sent to you will reach this phone.'
+                      ? 'Announcements reach this phone even with the app closed. Lock it, then send a test to be sure.'
                       : 'Allow notifications to register this phone.'}
               </Text>
             </View>
@@ -266,7 +266,18 @@ export function ProfileView() {
               variant="secondary"
               icon="bell-badge-outline"
               accent={theme.accent}
-              onPress={() => void sendTestPush()}
+              disabled={!pushToken}
+              onPress={async () => {
+                try {
+                  const result = await sendTestPush();
+                  toast.show(
+                    `Test sent to ${result.devices} device${result.devices === 1 ? '' : 's'}. Lock the phone and it should still arrive.`,
+                    'success',
+                  );
+                } catch (error) {
+                  toast.show(errorMessage(error), 'error');
+                }
+              }}
             />
           </View>
         </Card>

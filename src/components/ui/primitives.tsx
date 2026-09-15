@@ -1,6 +1,6 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Radius, Space } from '@/constants/brand';
 import { makeStyles, useColors } from '@/lib/theme';
@@ -16,7 +16,8 @@ export function Card({
   padded = true,
 }: {
   children: ReactNode;
-  style?: ViewStyle;
+  /** An array is accepted, so a card can layer a conditional highlight on top. */
+  style?: StyleProp<ViewStyle>;
   /**
    * Accepted so call sites stay unchanged, but deliberately not rendered:
    * every card uses the same neutral outline. Status is carried by pills and

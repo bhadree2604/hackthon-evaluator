@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
-import { getProfile, requireAdmin, type Role } from "./lib/guards";
+import { getProfile, requireAdmin, rolesOf, type Role } from "./lib/guards";
 import { audienceValidator } from "./schema";
 
 type Audience = "all" | "participants" | "coordinators" | "evaluators" | "admins";
@@ -33,11 +33,14 @@ export const feed = query({
       .order("desc")
       .take(args.limit ?? 50);
 
+    // Every role the account holds, not just the primary one, so a person who
+    // is both organiser and evaluator sees what is addressed to either.
+    const roles = rolesOf(profile);
     const mine: Audience[] = ["all"];
-    if (profile.role === "participant") mine.push("participants");
-    if (profile.role === "coordinator") mine.push("coordinators");
-    if (profile.role === "evaluator") mine.push("evaluators");
-    if (profile.role === "admin") mine.push("admins", "participants", "coordinators", "evaluators");
+    if (roles.includes("participant")) mine.push("participants");
+    if (roles.includes("coordinator")) mine.push("coordinators");
+    if (roles.includes("evaluator")) mine.push("evaluators");
+    if (roles.includes("admin")) mine.push("admins", "participants", "coordinators", "evaluators");
 
     return all.filter((a) => mine.includes(a.audience as Audience));
   },
@@ -61,7 +64,7 @@ export const publish = mutation({
 
     const roles = AUDIENCE_ROLES[args.audience as Audience];
     const recipients = (await ctx.db.query("profiles").collect()).filter(
-      (p) => p.active && (!roles || roles.includes(p.role as Role)),
+      (p) => p.active && (!roles || rolesOf(p).some((role) => roles.includes(role))),
     );
 
     const id = await ctx.db.insert("announcements", {

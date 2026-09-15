@@ -17,8 +17,10 @@ import { roundStatusValidator } from "./schema";
  *   open    - evaluators can score it
  *   locked  - scoring closed, marks frozen
  *
- * `published` is separate from status: it controls whether participants see
- * the marks, so an organiser can lock a round, check it, and release it later.
+ * A round is never shown to a team on its own. Results are released once, at
+ * the end, by `results.setPublished`, and teams only ever see the cumulative
+ * with its rounds listed underneath. The `published` column on this table is
+ * left over from the old per-round release and is no longer read.
  */
 
 /** Rounds created by `seed`, in order. */
@@ -243,16 +245,6 @@ export const setStatus = mutation({
     }
 
     await ctx.db.patch(args.roundId, { status: args.status });
-    return null;
-  },
-});
-
-/** Releases (or hides) a round's marks for participants. */
-export const setPublished = mutation({
-  args: { roundId: v.id("rounds"), published: v.boolean() },
-  handler: async (ctx, args) => {
-    await requireAdmin(ctx);
-    await ctx.db.patch(args.roundId, { published: args.published });
     return null;
   },
 });

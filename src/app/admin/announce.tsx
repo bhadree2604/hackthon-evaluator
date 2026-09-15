@@ -14,6 +14,7 @@ import { Space } from '@/constants/brand';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { errorMessage } from '@/lib/errors';
+import { useNotifications } from '@/lib/notifications';
 import { makeStyles, useColors, useRoleTheme } from '@/lib/theme';
 
 
@@ -59,12 +60,14 @@ export default function Announce() {
   const publish = useMutation(api.announcements.publish);
   const remove = useMutation(api.announcements.remove);
   const feed = useQuery(api.announcements.feed, { limit: 40 });
+  const { remotePushReady, sendTestPush } = useNotifications();
 
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [audience, setAudience] = useState<Audience>('participants');
   const [urgent, setUrgent] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
   const reach = useQuery(api.notifications.reach, { roles: AUDIENCE_ROLES[audience] });
@@ -107,6 +110,19 @@ export default function Announce() {
           />
         }
       />
+
+      {/*
+        No token on the organiser's own phone means the build cannot reach a
+        closed app at all, which is worth knowing before a "report to your lab"
+        goes out to 114 people.
+      */}
+      {!remotePushReady && (
+        <Banner
+          tone="warn"
+          title="This phone is not registered for push"
+          message="Announcements will only appear to people who have the app open. Allow notifications and reopen the app; if that does not fix it, the build is missing its Firebase configuration."
+        />
+      )}
 
       <Section title="Quick sends">
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presets}>
@@ -168,7 +184,7 @@ export default function Announce() {
 
         <Toggle
           label="Urgent"
-          description="Uses the high priority channel: longer vibration, louder alert."
+          description="Shows as a full heads-up alert over whatever is on screen, with a long vibration. Use it for calls people must not miss."
           value={urgent}
           onChange={setUrgent}
           accent={Brand.orange}
@@ -203,6 +219,32 @@ export default function Announce() {
           disabled={!canSend}
           loading={busy}
           onPress={() => setConfirming(true)}
+        />
+
+        <Button
+          label="Send a test to myself"
+          variant="ghost"
+          icon="bell-badge-outline"
+          size="sm"
+          full
+          loading={testing}
+          disabled={!remotePushReady || testing}
+          onPress={async () => {
+            setTesting(true);
+            try {
+              const result = await sendTestPush();
+              toast.show(
+                `Test sent to ${result.devices} device${
+                  result.devices === 1 ? '' : 's'
+                }. Lock the phone and it should still arrive.`,
+                'success',
+              );
+            } catch (err) {
+              toast.show(errorMessage(err), 'error');
+            } finally {
+              setTesting(false);
+            }
+          }}
         />
       </Card>
 

@@ -16,7 +16,17 @@ export type AnnouncementItem = {
   createdAt: number;
   deliveredTo: number;
   pushedTo?: number;
+  pushFailed?: number;
 };
+
+/** "12 phones buzzed", or the failure if the push service refused some. */
+function delivery(item: AnnouncementItem) {
+  if (item.pushedTo === undefined) return `sent to ${item.deliveredTo}`;
+
+  const buzzed = `${item.pushedTo} phone${item.pushedTo === 1 ? '' : 's'} buzzed`;
+  const failed = item.pushFailed ? `, ${item.pushFailed} failed` : '';
+  return `${item.deliveredTo} people · ${buzzed}${failed}`;
+}
 
 function when(ts: number) {
   const diff = Date.now() - ts;
@@ -88,12 +98,12 @@ export function AnnouncementFeed({
                 <Pill label={item.audience} color={Brand.blue} icon="account-multiple-outline" compact />
               )}
               {showAudience && (
-                <Text style={styles.delivered}>
-                  {item.pushedTo === undefined
-                    ? `sent to ${item.deliveredTo}`
-                    : `${item.deliveredTo} people · ${item.pushedTo} phone${
-                        item.pushedTo === 1 ? '' : 's'
-                      } buzzed`}
+                <Text
+                  style={[
+                    styles.delivered,
+                    !!item.pushFailed && { color: Brand.amber },
+                  ]}>
+                  {delivery(item)}
                 </Text>
               )}
               <View style={styles.flex} />
