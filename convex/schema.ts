@@ -158,6 +158,19 @@ export default defineSchema({
     photoUrl: v.optional(v.string()),
     imageUrls: v.optional(v.array(v.string())),
 
+    /**
+     * Straight off the registration form. `teamSize` is what the team declared,
+     * which can differ from the members actually on the roster.
+     */
+    problemDomain: v.optional(v.string()),
+    teamSize: v.optional(v.number()),
+    /** Members who asked for a place to stay. */
+    accommodationCount: v.optional(v.number()),
+    feePerPerson: v.optional(v.number()),
+    stayFeePerPerson: v.optional(v.number()),
+    /** When the team submitted the registration form. */
+    registeredAt: v.optional(v.number()),
+
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -178,6 +191,8 @@ export default defineSchema({
     rollNo: v.optional(v.string()),
     photoUrl: v.optional(v.string()),
     isLeader: v.boolean(),
+    /** Position on the registration form, 1 for whoever filled it in. */
+    memberNo: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_team", ["teamId"])

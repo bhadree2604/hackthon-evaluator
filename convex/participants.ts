@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { createAuth, DEFAULT_PARTICIPANT_PASSWORD, MIN_PASSWORD } from "./auth";
 import { normalizeEmail, requireAdmin, requireOwnTeam } from "./lib/guards";
+import { rosterOrder } from "./lib/roster";
 
 const PRESENT = new Set(["present", "late"]);
 
@@ -335,7 +336,7 @@ export const myTeam = query({
         .query("members")
         .withIndex("by_team", (q) => q.eq("teamId", team._id))
         .collect()
-    ).sort((a, b) => Number(b.isLeader) - Number(a.isLeader) || a.name.localeCompare(b.name));
+    ).sort(rosterOrder);
 
     const lab = team.labId ? await ctx.db.get(team.labId) : null;
     const coordinator = team.coordinatorId ? await ctx.db.get(team.coordinatorId) : null;
@@ -378,6 +379,14 @@ export const myTeam = query({
         notes: team.notes ?? null,
         photoUrl: team.photoUrl ?? null,
         imageUrls: team.imageUrls ?? [],
+        problemDomain: team.problemDomain ?? null,
+        registration: {
+          teamSize: team.teamSize ?? null,
+          accommodationCount: team.accommodationCount ?? null,
+          feePerPerson: team.feePerPerson ?? null,
+          stayFeePerPerson: team.stayFeePerPerson ?? null,
+          registeredAt: team.registeredAt ?? null,
+        },
         payment: {
           status: team.paymentStatus ?? "pending",
           link: team.paymentLink ?? null,
@@ -402,6 +411,7 @@ export const myTeam = query({
         college: m.college ?? null,
         photoUrl: m.photoUrl ?? null,
         isLeader: m.isLeader,
+        memberNo: m.memberNo ?? null,
         isMe: m._id === profile.memberId,
       })),
       attendance,

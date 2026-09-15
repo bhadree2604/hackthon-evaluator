@@ -9,6 +9,7 @@ import {
   requireStaff,
   type Ctx,
 } from "./lib/guards";
+import { rosterOrder } from "./lib/roster";
 import { paymentStatusValidator, teamStatusValidator, trackValidator } from "./schema";
 
 /**
@@ -86,6 +87,7 @@ async function decorate(ctx: QueryCtx, teams: Doc<"teams">[], viewer: Doc<"profi
         projectTitle: team.projectTitle,
         problemStatementId: team.problemStatementId,
         domain: team.domain,
+        problemDomain: team.problemDomain ?? null,
         track: team.track,
         college: team.college,
         tableNo: team.tableNo,
@@ -96,6 +98,11 @@ async function decorate(ctx: QueryCtx, teams: Doc<"teams">[], viewer: Doc<"profi
         paymentLink: team.paymentLink ?? null,
         paymentAmount: team.paymentAmount ?? null,
         paymentReference: team.paymentReference ?? null,
+        teamSize: team.teamSize ?? null,
+        accommodationCount: team.accommodationCount ?? null,
+        feePerPerson: team.feePerPerson ?? null,
+        stayFeePerPerson: team.stayFeePerPerson ?? null,
+        registeredAt: team.registeredAt ?? null,
         labId: team.labId,
         labName: lab?.name ?? null,
         labBlock: lab?.block ?? null,
@@ -140,7 +147,8 @@ export const list = query({
           t.name.toLowerCase().includes(needle) ||
           t.code.toLowerCase().includes(needle) ||
           (t.projectTitle ?? "").toLowerCase().includes(needle) ||
-          (t.problemStatementId ?? "").toLowerCase().includes(needle),
+          (t.problemStatementId ?? "").toLowerCase().includes(needle) ||
+          (t.problemDomain ?? "").toLowerCase().includes(needle),
       );
     }
 
@@ -196,7 +204,7 @@ export const get = query({
         .query("members")
         .withIndex("by_team", (q) => q.eq("teamId", team._id))
         .collect()
-    ).sort((a, b) => Number(b.isLeader) - Number(a.isLeader) || a.name.localeCompare(b.name));
+    ).sort(rosterOrder);
 
     const sessions = await ctx.db.query("attendanceSessions").withIndex("by_order").collect();
     const activeSessions = sessions.filter((s) => s.active);
@@ -283,7 +291,7 @@ export const byCode = query({
         .query("members")
         .withIndex("by_team", (q) => q.eq("teamId", team._id))
         .collect()
-    ).sort((a, b) => Number(b.isLeader) - Number(a.isLeader) || a.name.localeCompare(b.name));
+    ).sort(rosterOrder);
 
     return {
       team: card,
@@ -295,6 +303,7 @@ export const byCode = query({
         department: m.department ?? null,
         year: m.year ?? null,
         rollNo: m.rollNo ?? null,
+        memberNo: m.memberNo ?? null,
         isLeader: m.isLeader,
       })),
     };
@@ -313,6 +322,8 @@ export const upsert = mutation({
     projectTitle: v.optional(v.string()),
     problemStatementId: v.optional(v.string()),
     domain: v.optional(v.string()),
+    /** Leaving it out keeps what is stored; an empty string clears it. */
+    problemDomain: v.optional(v.string()),
     track: v.optional(trackValidator),
     college: v.optional(v.string()),
     labId: v.optional(v.id("labs")),
@@ -321,6 +332,8 @@ export const upsert = mutation({
     status: v.optional(teamStatusValidator),
     notes: v.optional(v.string()),
     photoUrl: v.optional(v.string()),
+    /** Leaving it out keeps what is stored; null clears it. */
+    accommodationCount: v.optional(v.union(v.number(), v.null())),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
@@ -328,6 +341,14 @@ export const upsert = mutation({
     const name = args.name.trim();
     if (!code || !name) {
       throw new ConvexError({ code: "BAD_INPUT", message: "Team code and name are required." });
+    }
+
+    const stay = args.accommodationCount;
+    if (typeof stay === "number" && (!Number.isInteger(stay) || stay < 0)) {
+      throw new ConvexError({
+        code: "BAD_INPUT",
+        message: "People needing a stay must be a whole number, 0 or more.",
+      });
     }
 
     const clash = await ctx.db
@@ -371,10 +392,21 @@ export const upsert = mutation({
         ...fields,
         notes: args.notes?.trim() || existing.notes,
         photoUrl: args.photoUrl?.trim() || existing.photoUrl,
+        problemDomain:
+          args.problemDomain === undefined
+            ? existing.problemDomain
+            : args.problemDomain.trim() || undefined,
+        accommodationCount:
+          stay === undefined ? existing.accommodationCount : (stay ?? undefined),
       });
       return args.teamId;
     }
-    return ctx.db.insert("teams", { ...fields, createdAt: Date.now() });
+    return ctx.db.insert("teams", {
+      ...fields,
+      problemDomain: args.problemDomain?.trim() || undefined,
+      accommodationCount: stay ?? undefined,
+      createdAt: Date.now(),
+    });
   },
 });
 

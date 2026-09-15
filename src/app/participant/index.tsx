@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { TeamIdentity, TeamResults } from '@/components/participant-extras';
+import { RegistrationDetails } from '@/components/registration-details';
 import { TAB_BAR_INSET } from '@/components/role-shell';
 import { Button } from '@/components/ui/button';
 import {
@@ -104,6 +105,17 @@ export default function MyTeam() {
             </View>
           </View>
 
+          <RegistrationDetails
+            bordered
+            teamSize={team.registration.teamSize}
+            rosterCount={members.length}
+            accommodationCount={team.registration.accommodationCount}
+            feePerPerson={team.registration.feePerPerson}
+            stayFeePerPerson={team.registration.stayFeePerPerson}
+            amount={team.payment.amount}
+            registeredAt={team.registration.registeredAt}
+          />
+
           {!!team.payment.proofUrl && (
             <Pressable
               accessibilityRole="button"
@@ -165,9 +177,10 @@ export default function MyTeam() {
       <Section title="Project">
         <Card>
           <View style={styles.kvGrid}>
-            <KeyValue label="Problem statement" value={team.problemStatementId} color={accent} />
+            <KeyValue label="Problem code" value={team.problemStatementId} color={accent} />
             <KeyValue label="Track" value={team.track} />
             <KeyValue label="Domain" value={team.domain} />
+            <KeyValue label="Problem domain" value={team.problemDomain} />
             <KeyValue label="College" value={team.college} />
           </View>
           {!!team.notes && <Text style={styles.notes}>{team.notes}</Text>}

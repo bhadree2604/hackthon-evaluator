@@ -1,22 +1,20 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { ConvexBetterAuthProvider } from '@convex-dev/better-auth/react';
 import { ConvexReactClient } from 'convex/react';
-import { Stack, type ErrorBoundaryProps } from 'expo-router';
+import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { StrictMode, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { StrictMode, useEffect, useMemo, useState, type ComponentProps } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { BackendSetup } from '@/components/backend-setup';
+import { RecoveryBoundary } from '@/components/recovery';
 import { ToastProvider } from '@/components/ui/overlays';
 import { initAuthClient } from '@/lib/auth-client';
 import { makeStyles, ThemeProvider, useColors, useThemeMode } from '@/lib/theme';
 import { deriveSiteUrl, loadBackendConfig } from '@/lib/backend';
-import { errorCode, errorMessage } from '@/lib/errors';
-import { clearAuthSession, clearLocalData } from '@/lib/reset';
 import { NotificationsProvider } from '@/lib/notifications';
 import { SessionProvider } from '@/lib/session';
 
@@ -104,7 +102,13 @@ function App({ convexUrl }: { convexUrl: string }) {
               <NotificationsProvider>
                 <ToastProvider>
                   <ThemedStatusBar />
+                  {/*
+                   * Every screen gets its own recovery boundary, so a screen that
+                   * throws is retried in place while the navigator, the Convex
+                   * connection and the session all stay up.
+                   */}
                   <Stack
+                    unstable_screenErrorBoundary={RecoveryBoundary}
                     screenOptions={{
                       headerShown: false,
                       animation: 'slide_from_right',
@@ -137,82 +141,10 @@ function Booting() {
 }
 
 /**
- * expo-router renders this instead of a red screen when a route throws, so a
- * bad query on one screen never takes the whole event app down.
+ * Last line of defence for anything above the screens (the providers
+ * themselves). It never shows an error page: see RecoveryBoundary.
  */
-export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  const Brand = useColors();
-  const styles = useStyles();
-  const [clearing, setClearing] = useState(false);
-
-  /**
-   * A session the server will not accept is not something to make the user
-   * read. Drop it and retry once; only a second failure reaches this screen.
-   */
-  const code = errorCode(error);
-  const staleSession = code === 'NO_PROFILE' || code === 'DISABLED';
-  const recovered = useRef(false);
-  const [recovering, setRecovering] = useState(staleSession);
-
-  useEffect(() => {
-    if (!staleSession || recovered.current) return;
-    recovered.current = true;
-
-    clearAuthSession()
-      .catch(() => {
-        // Nothing stored, or the keystore is unavailable: fall through.
-      })
-      .finally(() => {
-        setRecovering(false);
-        retry();
-      });
-  }, [retry, staleSession]);
-
-  if (recovering) return <Booting />;
-
-  return (
-    <View style={styles.error}>
-      <MaterialCommunityIcons name="alert-circle-outline" size={34} color={Brand.orange} />
-      <Text style={styles.errorTitle}>Something went wrong</Text>
-
-      {/* Shown in full: the message is what tells us what actually broke. */}
-      <ScrollView style={styles.errorScroll} contentContainerStyle={styles.errorScrollContent}>
-        <Text selectable style={styles.errorBody}>
-          {errorMessage(error)}
-        </Text>
-      </ScrollView>
-
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => retry()}
-        style={({ pressed }) => [styles.retry, pressed && { opacity: 0.7 }]}>
-        <Text style={styles.retryText}>Try again</Text>
-      </Pressable>
-
-      <Pressable
-        accessibilityRole="button"
-        disabled={clearing}
-        onPress={async () => {
-          setClearing(true);
-          try {
-            await clearLocalData();
-          } finally {
-            setClearing(false);
-            retry();
-          }
-        }}
-        style={({ pressed }) => [styles.reset, pressed && { opacity: 0.7 }]}>
-        <Text style={styles.resetText}>
-          {clearing ? 'Clearing...' : 'Clear saved data and restart'}
-        </Text>
-      </Pressable>
-
-      <Text style={styles.errorHint}>
-        Clearing signs you out on this device. Your event data is untouched.
-      </Text>
-    </View>
-  );
-}
+export const ErrorBoundary = RecoveryBoundary;
 
 const useStyles = makeStyles((Brand) => ({
   root: { flex: 1, backgroundColor: Brand.bg },
@@ -221,40 +153,5 @@ const useStyles = makeStyles((Brand) => ({
     backgroundColor: Brand.bg,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  error: {
-    flex: 1,
-    backgroundColor: Brand.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
-    gap: 12,
-  },
-  errorTitle: { color: Brand.text, fontSize: 19, fontWeight: '700' },
-  errorBody: {
-    color: Brand.textMuted,
-    fontSize: 13.5,
-    lineHeight: 20,
-    textAlign: 'center',
-    maxWidth: 320,
-  },
-  retry: {
-    marginTop: 12,
-    paddingHorizontal: 22,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: Brand.cyan,
-  },
-  retryText: { color: Brand.onAccent, fontSize: 14, fontWeight: '700' },
-  reset: { marginTop: 4, paddingHorizontal: 18, paddingVertical: 10 },
-  resetText: { color: Brand.textMuted, fontSize: 13, fontWeight: '700' },
-  errorScroll: { maxHeight: 180, alignSelf: 'stretch' },
-  errorScrollContent: { paddingHorizontal: 8 },
-  errorHint: {
-    color: Brand.textFaint,
-    fontSize: 11,
-    textAlign: 'center',
-    lineHeight: 16,
-    maxWidth: 300,
   },
 }));

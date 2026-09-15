@@ -5,6 +5,7 @@ import { Image } from 'expo-image';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { RegistrationDetails } from '@/components/registration-details';
 import { TeamEditorSheet, type EditableTeam } from '@/components/team-editor';
 import { Button } from '@/components/ui/button';
 import {
@@ -130,12 +131,28 @@ export default function TeamDetail() {
       <Section title="Project">
         <Card>
           <View style={styles.kvGrid}>
-            <KeyValue label="Problem statement" value={team.problemStatementId} color={theme.accent} />
+            <KeyValue label="Problem code" value={team.problemStatementId} color={theme.accent} />
             <KeyValue label="Track" value={team.track} />
             <KeyValue label="Domain" value={team.domain} />
+            <KeyValue label="Problem domain" value={team.problemDomain} />
             <KeyValue label="College" value={team.college} />
           </View>
           {!!team.notes && <Text style={styles.notes}>{team.notes}</Text>}
+        </Card>
+      </Section>
+
+      <Section title="Registration">
+        <Card>
+          <RegistrationDetails
+            teamSize={team.teamSize}
+            rosterCount={members.length}
+            accommodationCount={team.accommodationCount}
+            feePerPerson={team.feePerPerson}
+            stayFeePerPerson={team.stayFeePerPerson}
+            amount={team.paymentAmount}
+            reference={team.paymentReference}
+            registeredAt={team.registeredAt}
+          />
         </Card>
       </Section>
 

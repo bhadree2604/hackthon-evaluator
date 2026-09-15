@@ -34,6 +34,8 @@ export type EditableTeam = {
   projectTitle?: string | null;
   problemStatementId?: string | null;
   domain?: string | null;
+  problemDomain?: string | null;
+  accommodationCount?: number | null;
   college?: string | null;
   tableNo?: string | null;
   track?: Track | null;
@@ -52,6 +54,8 @@ type Draft = {
   projectTitle: string;
   problemStatementId: string;
   domain: string;
+  problemDomain: string;
+  accommodationCount: string;
   college: string;
   tableNo: string;
   track: Track | null;
@@ -70,6 +74,8 @@ const EMPTY: Draft = {
   projectTitle: '',
   problemStatementId: '',
   domain: '',
+  problemDomain: '',
+  accommodationCount: '',
   college: '',
   tableNo: '',
   track: null,
@@ -90,6 +96,8 @@ function draftFrom(team: EditableTeam | null): Draft {
     projectTitle: team.projectTitle ?? '',
     problemStatementId: team.problemStatementId ?? '',
     domain: team.domain ?? '',
+    problemDomain: team.problemDomain ?? '',
+    accommodationCount: team.accommodationCount != null ? String(team.accommodationCount) : '',
     college: team.college ?? '',
     tableNo: team.tableNo ?? '',
     track: team.track ?? null,
@@ -184,6 +192,13 @@ function EditorBody({
     try {
       const amount = draft.paymentAmount.trim() ? Number(draft.paymentAmount) : undefined;
 
+      const stayText = draft.accommodationCount.trim();
+      const stay = stayText ? Number(stayText) : null;
+      if (stay !== null && (!Number.isInteger(stay) || stay < 0)) {
+        toast.show('People needing a stay must be a whole number, 0 or more.', 'error');
+        return;
+      }
+
       const teamId = await upsert({
         teamId: team?._id,
         code: draft.code,
@@ -191,6 +206,9 @@ function EditorBody({
         projectTitle: draft.projectTitle || undefined,
         problemStatementId: draft.problemStatementId || undefined,
         domain: draft.domain || undefined,
+        // Sent even when empty: an empty string or null is how they are cleared.
+        problemDomain: draft.problemDomain,
+        accommodationCount: stay,
         track: draft.track ?? undefined,
         college: draft.college || undefined,
         tableNo: draft.tableNo || undefined,
@@ -318,8 +336,28 @@ function EditorBody({
             label="Domain"
             value={draft.domain}
             onChangeText={(value) => set('domain', value)}
-            placeholder="Generative AI, Robotics, ..."
+            placeholder="Software, Hardware, Open Innovation"
             icon="shape-outline"
+            accent={accent}
+          />
+          <TextField
+            label="Problem domain"
+            value={draft.problemDomain}
+            onChangeText={(value) => set('problemDomain', value)}
+            placeholder="Generative AI and LLM, Robotics, ..."
+            icon="tag-outline"
+            accent={accent}
+          />
+        </Field>
+
+        <Field label="Registration">
+          <TextField
+            label="People needing a stay"
+            value={draft.accommodationCount}
+            onChangeText={(value) => set('accommodationCount', value)}
+            placeholder="0"
+            icon="bed-outline"
+            keyboardType="number-pad"
             accent={accent}
           />
         </Field>

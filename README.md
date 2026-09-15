@@ -69,23 +69,31 @@ that person signs up with the same address.
 repeat the team columns on each of a team's rows.
 
 Column names are matched loosely (`Team Code`, `teamcode`, `code`… all work).
-Only `Team Code` and `Team Name` are required.
+Only `Team Code` and `Team Name` are required. The registration export
+(`hackfinity-registrations-*.csv`) imports as it is, every column included.
 
 ```
-Team Code,Team Name,Project Title,Problem Statement,Track,College,Lab,Table,
-Coordinator Email,Payment Status,Amount,Payment Link,Team Photo,
-Member Name,Email,Phone,Department,Year,Roll No,Photo,Leader
+Team Code,Team Name,Project Title,Problem Code,Domain,Problem Domain,College,
+Lab,Table,Coordinator Email,Status,Total,Txn ID,Payment Link,Team Photo,
+Members,Accommodation,Fee/person,Stay/person,Submitted,
+Member #,Member Name,Email,Phone,Department,Year,Roll No,Photo,Team lead
 ```
 
-- `Track` accepts `software` / `hardware` / `open`.
-- `Payment Status` accepts `paid`, `pending`, `failed`, `waived` (and `yes`/`no`).
+- `Track` (or `Domain`) accepts `software` / `hardware` / `open innovation`.
+- `Status` accepts `paid`, `verified`, `pending`, `failed`, `waived` (and `yes`/`no`).
+- `Members` is the team size declared on the form, `Accommodation` how many of
+  them need a stay; with `Fee/person` and `Stay/person` the app shows how the
+  total adds up.
+- A `Problem Code` that is not a code (an idea typed into the box) is kept as
+  the project title instead.
 - `Photo` and `Team Photo` are image URLs; they render on the participant screen.
 - `Coordinator Email` links the team to a coordinator who **already has an
   account** — invite coordinators first.
 - Labs named in the `Lab` column are created automatically.
 
 Re-uploading a corrected sheet **updates** matching team codes rather than
-duplicating them, and never clears a lab or coordinator you assigned by hand.
+duplicating them. A blank cell never overwrites what is stored, so a lab,
+coordinator, table, photo or payment link set by hand survives a re-import.
 
 ## 4. Participant logins
 

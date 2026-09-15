@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
+import { stayLabel } from '@/components/registration-details';
 import { ScannerModal } from '@/components/scanner';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/overlays';
@@ -217,6 +218,7 @@ function TeamHeader({
         <KeyValue label="Lab" value={team.labName} />
         <KeyValue label="Table" value={team.tableNo} />
         <KeyValue label="Members" value={team.memberCount} />
+        <KeyValue label="Need a stay" value={stayLabel(team.accommodationCount)} />
       </View>
     </Card>
   );

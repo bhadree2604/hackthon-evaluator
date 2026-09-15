@@ -11,6 +11,7 @@ const importRow = v.object({
   projectTitle: v.optional(v.string()),
   problemStatementId: v.optional(v.string()),
   domain: v.optional(v.string()),
+  problemDomain: v.optional(v.string()),
   track: v.optional(trackValidator),
   college: v.optional(v.string()),
   lab: v.optional(v.string()),
@@ -24,6 +25,13 @@ const importRow = v.object({
   paymentReference: v.optional(v.string()),
   paymentProofUrl: v.optional(v.string()),
 
+  teamSize: v.optional(v.number()),
+  accommodationCount: v.optional(v.number()),
+  feePerPerson: v.optional(v.number()),
+  stayFeePerPerson: v.optional(v.number()),
+  registeredAt: v.optional(v.number()),
+
+  memberNo: v.optional(v.number()),
   memberName: v.optional(v.string()),
   memberEmail: v.optional(v.string()),
   memberPhone: v.optional(v.string()),
@@ -33,6 +41,24 @@ const importRow = v.object({
   memberPhotoUrl: v.optional(v.string()),
   isLeader: v.optional(v.boolean()),
 });
+
+/** Trimmed text, or undefined for a blank cell. */
+function text(value: string | undefined) {
+  return value?.trim() || undefined;
+}
+
+/**
+ * A blank cell never erases what is already stored. The registration export
+ * has no column for a table number, a photo or a payment link, so re-importing
+ * it must not wipe the ones an organiser typed in by hand.
+ */
+function keepExisting<T extends object>(incoming: T, existing: Partial<T>): T {
+  const merged = { ...incoming };
+  for (const key of Object.keys(incoming) as (keyof T)[]) {
+    if (merged[key] === undefined) merged[key] = existing[key] as T[keyof T];
+  }
+  return merged;
+}
 
 /**
  * Bulk import, one row per member. Rows that repeat a team code update that
@@ -45,6 +71,7 @@ export const importRows = mutation({
   args: { rows: v.array(importRow) },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
+    const now = Date.now();
 
     const warnings: string[] = [];
     let teamsCreated = 0;
@@ -77,7 +104,7 @@ export const importRows = mutation({
         if (cached) {
           labId = cached;
         } else {
-          labId = await ctx.db.insert("labs", { name: labName, createdAt: Date.now() });
+          labId = await ctx.db.insert("labs", { name: labName, createdAt: now });
           labCache.set(labName.toLowerCase(), labId);
           labsCreated++;
         }
@@ -112,42 +139,56 @@ export const importRows = mutation({
         .withIndex("by_code", (q) => q.eq("code", code))
         .unique();
 
-      const teamFields = {
-        code,
+      const incomingTeam = {
         name: teamName,
-        projectTitle: row.projectTitle?.trim() || undefined,
-        problemStatementId: row.problemStatementId?.trim().toUpperCase() || undefined,
-        domain: row.domain?.trim() || undefined,
+        projectTitle: text(row.projectTitle),
+        problemStatementId: text(row.problemStatementId)?.toUpperCase(),
+        domain: text(row.domain),
+        problemDomain: text(row.problemDomain),
         track: row.track,
-        college: row.college?.trim() || undefined,
-        tableNo: row.tableNo?.trim() || undefined,
-        photoUrl: row.teamPhotoUrl?.trim() || undefined,
+        college: text(row.college),
+        tableNo: text(row.tableNo),
+        photoUrl: text(row.teamPhotoUrl),
         paymentStatus: row.paymentStatus,
-        paymentLink: row.paymentLink?.trim() || undefined,
+        paymentLink: text(row.paymentLink),
         paymentAmount: row.paymentAmount,
-        paymentReference: row.paymentReference?.trim() || undefined,
-        paymentProofUrl: row.paymentProofUrl?.trim() || undefined,
-        paidAt: row.paymentStatus === "paid" ? Date.now() : undefined,
-        updatedAt: Date.now(),
+        paymentReference: text(row.paymentReference),
+        paymentProofUrl: text(row.paymentProofUrl),
+        teamSize: row.teamSize,
+        accommodationCount: row.accommodationCount,
+        feePerPerson: row.feePerPerson,
+        stayFeePerPerson: row.stayFeePerPerson,
+        registeredAt: row.registeredAt,
       };
 
       let teamId: Id<"teams">;
       if (existingTeam) {
         teamId = existingTeam._id;
+        const merged = keepExisting(incomingTeam, existingTeam);
         await ctx.db.patch(teamId, {
-          ...teamFields,
+          ...merged,
           // Never blank out an assignment that already exists.
           labId: labId ?? existingTeam.labId,
           coordinatorId: coordinatorId ?? existingTeam.coordinatorId,
+          // Re-importing must not move the payment date to today.
+          paidAt:
+            merged.paymentStatus === "paid"
+              ? (existingTeam.paidAt ?? merged.registeredAt ?? now)
+              : undefined,
+          updatedAt: now,
         });
         teamsUpdated++;
       } else {
         teamId = await ctx.db.insert("teams", {
-          ...teamFields,
+          code,
+          ...incomingTeam,
           labId,
           coordinatorId,
           status: "active",
-          createdAt: Date.now(),
+          paidAt:
+            incomingTeam.paymentStatus === "paid" ? (incomingTeam.registeredAt ?? now) : undefined,
+          createdAt: now,
+          updatedAt: now,
         });
         teamsCreated++;
       }
@@ -167,24 +208,29 @@ export const importRows = mutation({
           m.name.toLowerCase() === memberName.toLowerCase(),
       );
 
-      const memberFields = {
+      const incomingMember = {
         teamId,
         name: memberName,
         email: memberEmail,
-        phone: row.memberPhone?.trim() || undefined,
-        college: row.college?.trim() || undefined,
-        department: row.memberDepartment?.trim() || undefined,
-        year: row.memberYear?.trim() || undefined,
-        rollNo: row.memberRollNo?.trim() || undefined,
-        photoUrl: row.memberPhotoUrl?.trim() || undefined,
-        isLeader: row.isLeader ?? false,
+        phone: text(row.memberPhone),
+        college: text(row.college),
+        department: text(row.memberDepartment),
+        year: text(row.memberYear),
+        rollNo: text(row.memberRollNo),
+        photoUrl: text(row.memberPhotoUrl),
+        memberNo: row.memberNo,
+        isLeader: row.isLeader,
       };
 
       if (match) {
-        await ctx.db.patch(match._id, memberFields);
+        await ctx.db.patch(match._id, keepExisting(incomingMember, match));
         membersUpdated++;
       } else {
-        await ctx.db.insert("members", { ...memberFields, createdAt: Date.now() });
+        await ctx.db.insert("members", {
+          ...incomingMember,
+          isLeader: row.isLeader ?? false,
+          createdAt: now,
+        });
         membersCreated++;
       }
 

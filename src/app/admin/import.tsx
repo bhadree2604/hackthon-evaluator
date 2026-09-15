@@ -22,7 +22,7 @@ import { errorMessage } from '@/lib/errors';
 const CHUNK = 80;
 
 const TEMPLATE_HEADER =
-  'Team Code,Team Name,Project Title,Problem Statement,Track,College,Lab,Table,Coordinator Email,Payment Status,Amount,Payment Link,Team Photo,Member Name,Email,Phone,Department,Year,Roll No,Photo,Leader';
+  'Team Code,Team Name,Project Title,Problem Code,Domain,Problem Domain,College,Lab,Table,Coordinator Email,Status,Total,Txn ID,Payment Link,Team Photo,Members,Accommodation,Fee/person,Stay/person,Submitted,Member #,Member Name,Email,Phone,Department,Year,Roll No,Photo,Team lead';
 
 type Result = {
   teamsCreated: number;

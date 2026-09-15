@@ -18,6 +18,7 @@ import type * as http from "../http.js";
 import type * as importer from "../importer.js";
 import type * as labs from "../labs.js";
 import type * as lib_guards from "../lib/guards.js";
+import type * as lib_roster from "../lib/roster.js";
 import type * as notifications from "../notifications.js";
 import type * as participants from "../participants.js";
 import type * as profiles from "../profiles.js";
@@ -45,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   importer: typeof importer;
   labs: typeof labs;
   "lib/guards": typeof lib_guards;
+  "lib/roster": typeof lib_roster;
   notifications: typeof notifications;
   participants: typeof participants;
   profiles: typeof profiles;
