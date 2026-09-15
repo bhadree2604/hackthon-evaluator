@@ -4,10 +4,11 @@ import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { Podium } from '@/components/podium';
 import { TAB_BAR_INSET } from '@/components/role-shell';
 import { Segmented } from '@/components/ui/button';
 import { SearchInput } from '@/components/ui/inputs';
-import { Card, EmptyState, Pill, ProgressBar, withAlpha } from '@/components/ui/primitives';
+import { Card, EmptyState, Pill, ProgressBar, Section, withAlpha } from '@/components/ui/primitives';
 import { Screen, ScreenHeader, ScreenLoading } from '@/components/ui/screen';
 import { medalColours, Radius, Space } from '@/constants/brand';
 import { api } from '@/convex/_generated/api';
@@ -155,6 +156,8 @@ export function LeaderboardView({
               );
             })}
           </View>
+
+          <StaffPodium board={board} roundId={roundId} accent={accent} />
 
           <SearchInput
             value={search}
@@ -371,9 +374,68 @@ export function LeaderboardView({
   );
 }
 
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The same winners' stage the teams get, shown to organisers and evaluators
+ * while the results are still sealed.
+ *
+ * Staff reach this through `scores.leaderboard`, which is gated on the
+ * evaluator and admin roles, so a participant cannot read these numbers at any
+ * point. Their own copy comes from `results.board` and stays empty until an
+ * organiser publishes — which is what the caption here reports.
+ */
+function StaffPodium({
+  board,
+  roundId,
+  accent,
+}: {
+  board: NonNullable<(typeof api.scores.leaderboard)['_returnType']>;
+  roundId: Id<'rounds'> | null;
+  accent: string;
+}) {
+  const styles = useStyles();
+  const released = useQuery(api.results.staffState, {});
+
+  const round = roundId ? (board.rounds.find((r) => r._id === roundId) ?? null) : null;
+
+  // Always the true standings, never the search-filtered rows.
+  const top = board.rows
+    .filter((row) => row.rank !== null && row.rank <= 3)
+    .map((row) => ({
+      teamId: row.teamId,
+      rank: row.rank as number,
+      code: row.code,
+      name: row.name,
+      points: roundId ? row.roundPoints : row.cumulativePoints,
+      percent: roundId ? row.roundPercent : row.cumulativePercent,
+    }))
+    .filter((entry): entry is typeof entry & { points: number } => entry.points !== null);
+
+  if (top.length === 0) return null;
+
+  return (
+    <Section
+      title={round ? `Top of ${round.name}` : 'Podium'}
+      hint={
+        round
+          ? `This round alone, out of ${board.maxTotal}.`
+          : released?.published
+            ? 'Published — every team is looking at this right now.'
+            : 'Not published yet, so no team can see any of this.'
+      }>
+      <Card style={styles.podiumCard}>
+        <Podium top={top} maxPoints={round ? board.maxTotal : board.maxPoints} />
+      </Card>
+    </Section>
+  );
+}
+
 const useStyles = makeStyles((Brand) => ({
   flex: { flex: 1 },
   pressed: { opacity: 0.65 },
+
+  podiumCard: { paddingBottom: 0, overflow: 'hidden' },
 
   roundBar: { flexDirection: 'row', flexWrap: 'wrap', gap: Space.sm },
   roundChip: {
