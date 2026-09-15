@@ -11,6 +11,9 @@ import { withAlpha } from '@/components/ui/primitives';
 import { Space } from '@/constants/brand';
 import { makeStyles, useColors } from '@/lib/theme';
 
+/** Diameter of the draggable knob. The usable track is inset by half of it. */
+const THUMB = 28;
+
 /**
  * Whole marks from 0 to `max`, set by dragging the track or tapping a tick.
  *
@@ -18,10 +21,6 @@ import { makeStyles, useColors } from '@/lib/theme';
  * tells "not scored yet" apart from a deliberate 0. A mark can never go below
  * 0 or above `max`, so a negative score is not representable here, and
  * `scores.save` rejects anything outside that range on the server as well.
- *
- * Built on the touch responder props rather than PanResponder so there is no
- * mutable state between renders at all: the track measures itself once, and
- * every touch is turned straight into a mark.
  */
 export function ScoreSlider({
   value,
@@ -39,20 +38,31 @@ export function ScoreSlider({
   const Brand = useColors();
   const styles = useStyles();
   const [width, setWidth] = useState(0);
+  /** True once the finger has actually moved, which is what claims the gesture. */
+  const [sliding, setSliding] = useState(false);
 
   /**
-   * `locationX` is relative to the view holding the responder. The track has
-   * no touchable children, so it is always the target and the reading stays
-   * correct for the whole drag.
+   * The thumb's centre travels between THUMB/2 and width - THUMB/2, so it can
+   * never hang outside the card at either end, and the two extremes land
+   * exactly on 0 and `max`.
    */
-  const handleTouch = (event: GestureResponderEvent) => {
+  const usable = Math.max(1, width - THUMB);
+
+  const apply = (event: GestureResponderEvent) => {
     if (disabled || width <= 0) return;
-    const ratio = Math.min(1, Math.max(0, event.nativeEvent.locationX / width));
-    onChange(Math.round(ratio * max));
+    const ratio = Math.min(1, Math.max(0, (event.nativeEvent.locationX - THUMB / 2) / usable));
+    const next = Math.round(ratio * max);
+    /**
+     * A drag fires dozens of events a second, and every one of them would
+     * otherwise re-render all ten sliders on the sheet. There are only 11
+     * possible marks, so publish a change only when the mark actually changes.
+     */
+    if (next !== value) onChange(next);
   };
 
   const filled = value ?? 0;
   const ratio = max > 0 ? filled / max : 0;
+  const thumbCentre = THUMB / 2 + ratio * usable;
 
   return (
     <View style={styles.root}>
@@ -67,14 +77,20 @@ export function ScoreSlider({
       <View
         onStartShouldSetResponder={() => !disabled}
         onMoveShouldSetResponder={() => !disabled}
-        onResponderGrant={handleTouch}
-        onResponderMove={handleTouch}
+        onResponderGrant={apply}
+        onResponderMove={(event) => {
+          if (!sliding) setSliding(true);
+          apply(event);
+        }}
+        onResponderRelease={() => setSliding(false)}
+        onResponderTerminate={() => setSliding(false)}
         /**
-         * Let the scroll view take over on a vertical drag, so a thumb landing
-         * on a slider can still scroll the sheet. A sideways drag stays here,
-         * because a vertical scroll view never asks for those.
+         * Before the finger has moved, let the scroll view take the gesture so
+         * the sheet still scrolls from anywhere. Once a slide has started,
+         * refuse: having the list steal it mid-drag is what makes a slider
+         * feel like it is fighting you.
          */
-        onResponderTerminationRequest={() => true}
+        onResponderTerminationRequest={() => !sliding}
         onLayout={(event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)}
         // Screen readers get the same control as a native slider.
         accessibilityRole="adjustable"
@@ -86,17 +102,27 @@ export function ScoreSlider({
           onChange(Math.min(max, Math.max(0, filled + step)));
         }}
         style={styles.touch}>
-        <View style={[styles.track, { backgroundColor: Brand.track }]}>
-          <View style={[styles.fill, { width: `${ratio * 100}%`, backgroundColor: accent }]} />
+        {/*
+          Every child is pointer-transparent on purpose. A touchable child
+          becomes the target of the touch, and `locationX` is then measured
+          from that child's left edge instead of the track's: dragging the
+          thumb would report ~14px however far along it was, so the mark
+          collapsed to 0 and snapped back on the next event that happened to
+          hit the track. Leave `pointerEvents="none"` alone.
+        */}
+        <View pointerEvents="none" style={[styles.track, { backgroundColor: Brand.track }]}>
+          <View style={[styles.fill, { width: thumbCentre, backgroundColor: accent }]} />
         </View>
 
         <View
+          pointerEvents="none"
           style={[
             styles.thumb,
             {
-              left: `${ratio * 100}%`,
+              left: thumbCentre - THUMB / 2,
               backgroundColor: value === null ? Brand.surfaceStrong : accent,
               borderColor: Brand.bg,
+              transform: [{ scale: sliding ? 1.15 : 1 }],
             },
           ]}
         />
@@ -132,8 +158,6 @@ export function ScoreSlider({
   );
 }
 
-const THUMB = 26;
-
 const useStyles = makeStyles((Brand) => ({
   root: { gap: Space.sm },
   readout: { flexDirection: 'row', alignItems: 'baseline', gap: Space.sm },
@@ -142,8 +166,8 @@ const useStyles = makeStyles((Brand) => ({
   hint: { color: Brand.textFaint, fontSize: 11.5 },
 
   // Tall enough to grab with a thumb without hunting for the track.
-  touch: { height: 44, justifyContent: 'center' },
-  track: { height: 10, borderRadius: 5, overflow: 'hidden' },
+  touch: { height: 48, justifyContent: 'center' },
+  track: { height: 10, borderRadius: 5, marginHorizontal: 0, overflow: 'hidden' },
   fill: { height: '100%', borderRadius: 5 },
   thumb: {
     position: 'absolute',
@@ -151,7 +175,6 @@ const useStyles = makeStyles((Brand) => ({
     height: THUMB,
     borderRadius: THUMB / 2,
     borderWidth: 3,
-    marginLeft: -THUMB / 2,
   },
 
   ticks: { flexDirection: 'row', justifyContent: 'space-between' },
