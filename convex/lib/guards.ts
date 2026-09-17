@@ -1,6 +1,7 @@
 import { ConvexError } from "convex/values";
 
 import type { Doc } from "../_generated/dataModel";
+import { env } from "../_generated/server";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { authComponent } from "../auth";
 
@@ -92,6 +93,47 @@ export const requireAdmin = (ctx: Ctx) => requireRole(ctx, ["admin"]);
 export const requireEvaluator = (ctx: Ctx) => requireRole(ctx, ["evaluator", "admin"]);
 export const requireCoordinator = (ctx: Ctx) => requireRole(ctx, ["coordinator", "admin"]);
 export const requireParticipant = (ctx: Ctx) => requireRole(ctx, ["participant"]);
+
+/**
+ * The master organiser, as named by `MASTER_ADMIN_EMAIL` on the deployment.
+ *
+ * `profile.isMaster` is a copy of this, written when the account is created,
+ * and it is what the account screens read. It is still a database row, and any
+ * organiser can reach the database. Rewriting or deleting a mark an evaluator
+ * has already signed is the one thing on this app that can change the result
+ * without leaving a trace, so it is checked against the environment instead:
+ * the authority lives on the deployment, where it takes `npx convex env set`
+ * to move it, rather than in a field somebody could patch.
+ */
+function masterEmail() {
+  const configured = env.MASTER_ADMIN_EMAIL;
+  return configured ? normalizeEmail(configured) : null;
+}
+
+/** Non-throwing form, for telling a UI whether to offer the controls at all. */
+export function isMasterAdmin(profile: Doc<"profiles">) {
+  const master = masterEmail();
+  return !!master && normalizeEmail(profile.email) === master && hasRole(profile, "admin");
+}
+
+export async function requireMasterAdmin(ctx: Ctx): Promise<Doc<"profiles">> {
+  const profile = await requireAdmin(ctx);
+  const master = masterEmail();
+  if (!master) {
+    throw new ConvexError({
+      code: "NO_MASTER",
+      message:
+        "MASTER_ADMIN_EMAIL is not set on this deployment, so no account can change a signed sheet.",
+    });
+  }
+  if (normalizeEmail(profile.email) !== master) {
+    throw new ConvexError({
+      code: "MASTER_ONLY",
+      message: "Only the master organiser can change or delete an evaluator's sheet.",
+    });
+  }
+  return profile;
+}
 
 /** Staff can read every team; participants only their own. */
 export async function requireStaff(ctx: Ctx) {

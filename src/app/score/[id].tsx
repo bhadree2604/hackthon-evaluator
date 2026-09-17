@@ -301,7 +301,7 @@ function RoundSheet({
           label="Your name, as the evaluator of this team"
           value={signature}
           onChangeText={setSignature}
-          placeholder="Who is scoring this team"
+          placeholder="Type your name"
           accent={accent}
           editable={sheet.editable}
           autoCapitalize="words"
@@ -313,7 +313,14 @@ function RoundSheet({
             color={Brand.textFaint}
           />
           <Text style={styles.signatureHint}>
-            Saved against {sheet.evaluatorEmail} and shown to the organisers with this round.
+            {/*
+              * Deliberately blank on a new sheet. The server sends back only
+              * what was signed on this sheet, never the account name or the
+              * last team's signature, so whoever is holding the phone has to
+              * say who they are before this team can be scored.
+              */}
+            Type the name of whoever is scoring this team. Saved against{' '}
+            {sheet.evaluatorEmail} and shown to the organisers with this round.
           </Text>
         </View>
       </Card>

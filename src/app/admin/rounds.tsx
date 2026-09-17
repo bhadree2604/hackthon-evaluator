@@ -19,6 +19,7 @@ import {
   StatGrid,
   withAlpha,
 } from '@/components/ui/primitives';
+import { ScoreSlider } from '@/components/ui/score-slider';
 import { Screen, ScreenHeader, ScreenLoading } from '@/components/ui/screen';
 import { Radius, Space } from '@/constants/brand';
 import { api } from '@/convex/_generated/api';
@@ -609,6 +610,198 @@ function Check({ ok, label }: { ok: boolean; label: string }) {
 
 /* -------------------------------------------------------------------------- */
 
+/** What the master organiser may change on a sheet. Everything is optional. */
+type SheetPatch = {
+  values?: { key: string; value: number }[];
+  evaluatorName?: string;
+  notes?: string;
+  submitted?: boolean;
+};
+
+type PanelData = NonNullable<
+  ReturnType<typeof useQuery<typeof api.scores.roundSheets>>
+>;
+type PanelRow = PanelData['rows'][number];
+
+/**
+ * One sheet, opened for correction by the master organiser.
+ *
+ * Mounted only while that row is being edited and keyed by the sheet id, so
+ * every piece of state seeds itself from the row on mount. That keeps the
+ * marks out of an effect: React Compiler is on for this project and rejects
+ * the usual ref-and-effect seeding, and there is nothing here that needs to
+ * follow the server once the form is open.
+ */
+function SheetEditor({
+  row,
+  criteria,
+  maxTotal,
+  accent,
+  busy,
+  onCancel,
+  onSave,
+}: {
+  row: PanelRow;
+  criteria: PanelData['criteria'];
+  /**
+   * The *current* rubric's maximum, not the one stored on the sheet. A sheet
+   * written before the rubric changed is re-tallied against today's criteria
+   * when it is saved, so showing its old maximum here would misreport what the
+   * correction is about to produce.
+   */
+  maxTotal: number;
+  accent: string;
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (patch: SheetPatch) => void;
+}) {
+  const Brand = useColors();
+  const styles = useStyles();
+
+  const [values, setValues] = useState<Record<string, number | null>>(() => {
+    const byKey = new Map(row.values.map((entry) => [entry.key, entry.value]));
+    const seeded: Record<string, number | null> = {};
+    for (const criterion of criteria) seeded[criterion.key] = byKey.get(criterion.key) ?? null;
+    return seeded;
+  });
+  const [signature, setSignature] = useState(row.evaluatorName);
+  const [notes, setNotes] = useState(row.notes ?? '');
+  const [submitted, setSubmitted] = useState(row.submitted);
+
+  const running = useMemo(() => {
+    let total = 0;
+    let filled = 0;
+    for (const criterion of criteria) {
+      const value = values[criterion.key];
+      if (typeof value === 'number') {
+        total += value * criterion.weight;
+        filled++;
+      }
+    }
+    return { total, filled };
+  }, [criteria, values]);
+
+  const signed = signature.trim().length > 0;
+  const complete = running.filled === criteria.length;
+  /** Matches the server: a submitted sheet has to carry every criterion. */
+  const blocked = !signed || (submitted && !complete);
+
+  return (
+    <Card style={styles.editor}>
+      <View style={styles.editorHead}>
+        <MaterialCommunityIcons name="pencil-outline" size={15} color={accent} />
+        <Text style={styles.editorTitle}>Correcting {row.evaluatorName}&apos;s sheet</Text>
+      </View>
+
+      <TextField
+        label="Signed by"
+        value={signature}
+        onChangeText={setSignature}
+        placeholder="Who scored this team"
+        accent={accent}
+        autoCapitalize="words"
+      />
+
+      {criteria.map((criterion) => (
+        <View key={criterion.key} style={styles.editorCriterion}>
+          <View style={styles.editorCriterionHead}>
+            <Text style={styles.editorCriterionLabel} numberOfLines={1}>
+              {criterion.label}
+            </Text>
+            <Text style={[styles.editorCriterionValue, { color: accent }]}>
+              {values[criterion.key] ?? '—'}
+              <Text style={styles.panelMax}> / {criterion.maxScore}</Text>
+            </Text>
+          </View>
+          <ScoreSlider
+            value={values[criterion.key] ?? null}
+            max={criterion.maxScore}
+            accent={accent}
+            onChange={(value) => setValues((prev) => ({ ...prev, [criterion.key]: value }))}
+          />
+        </View>
+      ))}
+
+      <TextField
+        label="Notes"
+        value={notes}
+        onChangeText={setNotes}
+        placeholder="Optional"
+        accent={accent}
+        multiline
+      />
+
+      <Pressable
+        onPress={() => setSubmitted((prev) => !prev)}
+        style={styles.editorToggle}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: submitted }}>
+        <MaterialCommunityIcons
+          name={submitted ? 'check-circle' : 'circle-edit-outline'}
+          size={17}
+          color={submitted ? Brand.green : Brand.amber}
+        />
+        <View style={styles.flex}>
+          <Text style={styles.editorToggleLabel}>
+            {submitted ? 'Counts towards the round' : 'Draft, not counted'}
+          </Text>
+          <Text style={styles.panelMeta}>
+            {submitted
+              ? 'Tap to drop it back to a draft and out of the average.'
+              : 'Tap to submit it so it counts.'}
+          </Text>
+        </View>
+      </Pressable>
+
+      <View style={styles.editorTotal}>
+        <Text style={styles.editorTotalLabel}>
+          {running.filled} of {criteria.length} scored
+        </Text>
+        <Text style={[styles.panelTotal, { color: accent }]}>
+          {Math.round(running.total * 10) / 10}
+          <Text style={styles.panelMax}> / {maxTotal}</Text>
+        </Text>
+      </View>
+
+      {!signed && <Text style={styles.panelWarn}>A sheet has to stay signed by somebody.</Text>}
+      {signed && submitted && !complete && (
+        <Text style={styles.panelWarn}>
+          Fill in every criterion, or drop this back to a draft before saving.
+        </Text>
+      )}
+
+      <View style={styles.editorActions}>
+        <Button
+          label="Cancel"
+          variant="ghost"
+          size="sm"
+          onPress={onCancel}
+          style={styles.flex}
+        />
+        <Button
+          label="Save"
+          size="sm"
+          icon="content-save-outline"
+          accent={accent}
+          loading={busy}
+          disabled={blocked}
+          style={styles.flex}
+          onPress={() =>
+            onSave({
+              values: criteria
+                .map((criterion) => ({ key: criterion.key, value: values[criterion.key] }))
+                .filter((entry): entry is { key: string; value: number } => entry.value !== null),
+              evaluatorName: signature,
+              notes,
+              submitted,
+            })
+          }
+        />
+      </View>
+    </Card>
+  );
+}
+
 /**
  * Who evaluated what, for one round.
  *
@@ -616,6 +809,10 @@ function Check({ ok, label }: { ok: boolean; label: string }) {
  * grouped by team and carry the name the evaluator signed alongside the login
  * it was written from, so a mark a team queries can be traced to a person
  * rather than to an account a whole panel was sharing.
+ *
+ * The master organiser — the account named by MASTER_ADMIN_EMAIL on the
+ * deployment — also gets to correct or delete a sheet from here. No other
+ * organiser is offered the controls, and the server checks again regardless.
  */
 function RoundPanelSheet({
   roundId,
@@ -628,7 +825,43 @@ function RoundPanelSheet({
 }) {
   const Brand = useColors();
   const styles = useStyles();
+  const toast = useToast();
   const data = useQuery(api.scores.roundSheets, roundId ? { roundId } : 'skip');
+  const updateSheet = useMutation(api.scores.updateSheet);
+  const removeSheet = useMutation(api.scores.removeSheet);
+
+  const [editing, setEditing] = useState<Id<'scores'> | null>(null);
+  const [removing, setRemoving] = useState<Id<'scores'> | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function saveSheet(sheetId: Id<'scores'>, patch: SheetPatch) {
+    setBusy(true);
+    try {
+      const result = await updateSheet({ sheetId, ...patch });
+      toast.show(
+        `${result.evaluatorName}: ${Math.round(result.total * 10) / 10} of ${result.maxTotal}`,
+        'success',
+      );
+      setEditing(null);
+    } catch (error) {
+      toast.show(errorMessage(error), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeRow(sheetId: Id<'scores'>, name: string) {
+    setBusy(true);
+    try {
+      await removeSheet({ sheetId });
+      toast.show(`${name}'s sheet deleted`, 'success');
+      setRemoving(null);
+    } catch (error) {
+      toast.show(errorMessage(error), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const groups = useMemo(() => {
     if (!data) return [];
@@ -641,14 +874,25 @@ function RoundPanelSheet({
     return [...byTeam.values()];
   }, [data]);
 
+  /** Never leave a half-typed correction open behind the panel. */
+  function close() {
+    setEditing(null);
+    setRemoving(null);
+    onClose();
+  }
+
   return (
     <Sheet
       visible={roundId !== null}
-      onClose={onClose}
+      onClose={close}
       accent={accent}
       title={data ? `Who scored ${data.round.name}` : 'Who scored this round'}
-      subtitle="The name each evaluator signed, and the login the sheet came from."
-      footer={<Button label="Close" variant="ghost" onPress={onClose} style={styles.flex} />}>
+      subtitle={
+        data?.canManage
+          ? 'The name each evaluator signed. You can correct or delete a sheet here.'
+          : 'The name each evaluator signed, and the login the sheet came from.'
+      }
+      footer={<Button label="Close" variant="ghost" onPress={close} style={styles.flex} />}>
       {data === undefined ? (
         <ScreenLoading label="Loading the panel" />
       ) : groups.length === 0 ? (
@@ -697,41 +941,115 @@ function RoundPanelSheet({
                 </Text>
               </View>
 
-              {group.rows.map((row) => (
-                <View key={row._id} style={styles.panelRow}>
-                  <MaterialCommunityIcons
-                    name={row.submitted ? 'check-circle' : 'circle-edit-outline'}
-                    size={15}
-                    color={row.submitted ? Brand.green : Brand.amber}
+              {group.rows.map((row) =>
+                editing === row._id ? (
+                  /*
+                   * Keyed by the sheet id and mounted only while it is open, so
+                   * the form seeds itself from the row on mount and no effect
+                   * has to copy the server value into state.
+                   */
+                  <SheetEditor
+                    key={row._id}
+                    row={row}
+                    criteria={data.criteria}
+                    maxTotal={data.maxTotal}
+                    accent={accent}
+                    busy={busy}
+                    onCancel={() => setEditing(null)}
+                    onSave={(patch) => saveSheet(row._id, patch)}
                   />
-                  <View style={styles.flex}>
-                    <Text style={styles.panelName}>{row.evaluatorName}</Text>
-                    <Text style={styles.panelMeta}>
-                      {row.evaluatorEmail ?? 'no login on record'}
-                    </Text>
-                    {!!row.signedForAnother && (
-                      <Text style={styles.panelWarn}>
-                        Written from {row.signedForAnother}&apos;s account
+                ) : (
+                  <View key={row._id} style={styles.panelRow}>
+                    <MaterialCommunityIcons
+                      name={row.submitted ? 'check-circle' : 'circle-edit-outline'}
+                      size={15}
+                      color={row.submitted ? Brand.green : Brand.amber}
+                    />
+                    <View style={styles.flex}>
+                      <Text style={styles.panelName}>{row.evaluatorName}</Text>
+                      <Text style={styles.panelMeta}>
+                        {row.evaluatorEmail ?? 'no login on record'}
                       </Text>
-                    )}
-                    {!!row.notes && <Text style={styles.panelNote}>{row.notes}</Text>}
+                      {!!row.signedForAnother && (
+                        <Text style={styles.panelWarn}>
+                          Written from {row.signedForAnother}&apos;s account
+                        </Text>
+                      )}
+                      {!!row.notes && <Text style={styles.panelNote}>{row.notes}</Text>}
+
+                      {/*
+                        * Asked inline rather than in a dialog: this panel is
+                        * already a modal, and stacking a second one over it is
+                        * unreliable on Android.
+                        */}
+                      {removing === row._id && (
+                        <View style={styles.panelConfirm}>
+                          <Text style={styles.panelWarn}>
+                            Delete this sheet? The round&apos;s mark for {group.code} is the
+                            average of its sheets, so this moves the team. It cannot be undone.
+                          </Text>
+                          <View style={styles.panelConfirmRow}>
+                            <Button
+                              label="Cancel"
+                              variant="ghost"
+                              size="sm"
+                              onPress={() => setRemoving(null)}
+                              style={styles.flex}
+                            />
+                            <Button
+                              label="Delete"
+                              variant="danger"
+                              size="sm"
+                              icon="trash-can-outline"
+                              loading={busy}
+                              onPress={() => removeRow(row._id, row.evaluatorName)}
+                              style={styles.flex}
+                            />
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.panelScore}>
+                      <Text style={[styles.panelTotal, { color: accent }]}>
+                        {Math.round(row.total * 10) / 10}
+                        <Text style={styles.panelMax}> / {row.maxTotal}</Text>
+                      </Text>
+                      <Text style={styles.panelMeta}>
+                        {new Date(row.updatedAt).toLocaleString([], {
+                          day: 'numeric',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </Text>
+                      {/* Only the master organiser is offered these. */}
+                      {data.canManage && removing !== row._id && (
+                        <View style={styles.panelActions}>
+                          <IconButton
+                            icon="pencil-outline"
+                            size={16}
+                            accessibilityLabel={`Edit ${row.evaluatorName}'s sheet`}
+                            onPress={() => {
+                              setRemoving(null);
+                              setEditing(row._id);
+                            }}
+                          />
+                          <IconButton
+                            icon="trash-can-outline"
+                            size={16}
+                            color={Brand.red}
+                            accessibilityLabel={`Delete ${row.evaluatorName}'s sheet`}
+                            onPress={() => {
+                              setEditing(null);
+                              setRemoving(row._id);
+                            }}
+                          />
+                        </View>
+                      )}
+                    </View>
                   </View>
-                  <View style={styles.panelScore}>
-                    <Text style={[styles.panelTotal, { color: accent }]}>
-                      {Math.round(row.total * 10) / 10}
-                      <Text style={styles.panelMax}> / {row.maxTotal}</Text>
-                    </Text>
-                    <Text style={styles.panelMeta}>
-                      {new Date(row.updatedAt).toLocaleString([], {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </Text>
-                  </View>
-                </View>
-              ))}
+                ),
+              )}
             </Card>
           ))}
         </>
@@ -806,6 +1124,33 @@ const useStyles = makeStyles((Brand) => ({
   panelScore: { alignItems: 'flex-end' },
   panelTotal: { fontSize: 15, fontWeight: '800' },
   panelMax: { color: Brand.textFaint, fontSize: 11, fontWeight: '700' },
+  panelActions: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 4 },
+  panelConfirm: {
+    gap: Space.sm,
+    marginTop: Space.sm,
+    padding: Space.sm,
+    borderRadius: Radius.md,
+    backgroundColor: withAlpha(Brand.red, 0.1),
+  },
+  panelConfirmRow: { flexDirection: 'row', gap: Space.sm },
+
+  editor: {
+    gap: Space.md,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: withAlpha(Brand.text, 0.12),
+  },
+  editorHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  editorTitle: { color: Brand.text, fontSize: 13.5, fontWeight: '700', flex: 1 },
+  editorCriterion: { gap: 4 },
+  editorCriterionHead: { flexDirection: 'row', alignItems: 'center', gap: Space.sm },
+  editorCriterionLabel: { color: Brand.textDim, fontSize: 12.5, flex: 1 },
+  editorCriterionValue: { fontSize: 13.5, fontWeight: '800' },
+  editorToggle: { flexDirection: 'row', alignItems: 'center', gap: Space.sm },
+  editorToggleLabel: { color: Brand.text, fontSize: 13, fontWeight: '600' },
+  editorTotal: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  editorTotalLabel: { color: Brand.textMuted, fontSize: 12 },
+  editorActions: { flexDirection: 'row', gap: Space.sm },
 
   explainer: { gap: Space.md, borderRadius: Radius.lg },
   explainerTitle: { color: Brand.text, fontSize: 15, fontWeight: '700' },

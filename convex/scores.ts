@@ -3,8 +3,10 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import {
+  isMasterAdmin,
   requireAdmin,
   requireEvaluator,
+  requireMasterAdmin,
   requireRole,
   requireStaff,
   type Ctx,
@@ -73,19 +75,6 @@ export const mySheet = query({
 
     const byKey = new Map((existing?.values ?? []).map((entry) => [entry.key, entry.value]));
 
-    /**
-     * On a fresh sheet, fall back to the last name this account signed rather
-     * than the account's own name. A panel sharing one login would otherwise
-     * have to retype the signature for all thirty teams.
-     */
-    const lastSigned = existing?.evaluatorName
-      ? null
-      : await ctx.db
-          .query("scores")
-          .withIndex("by_evaluator", (q) => q.eq("evaluatorId", profile._id))
-          .order("desc")
-          .first();
-
     return {
       round: {
         _id: round._id,
@@ -95,11 +84,19 @@ export const mySheet = query({
         status: round.status,
       },
       /**
-       * Who is signing. Pre-filled with whatever was signed last time, or the
-       * account's own name on a fresh sheet, so the common case is one glance
-       * rather than one more thing to type.
+       * Who is signing, and never pre-filled.
+       *
+       * A fresh sheet comes back with an empty signature so the evaluator has
+       * to type who is actually scoring this team. The two conveniences that
+       * used to fill it in were both wrong in the case the signature exists
+       * for: the account's own name is not who is in the room when a panel
+       * shares one login, and the previous sheet's name is right up until the
+       * moment the panel swaps over, which is exactly when a pre-filled box
+       * gets signed by accident. Only what was already signed on *this* sheet
+       * comes back, so re-opening a sheet to change a mark still shows its own
+       * signature rather than making it be typed twice.
        */
-      evaluatorName: existing?.evaluatorName ?? lastSigned?.evaluatorName ?? profile.name,
+      evaluatorName: existing?.evaluatorName ?? "",
       /** The account the sheet is written from. Never editable. */
       evaluatorEmail: profile.email,
       criteria: criteria.map((c) => ({
@@ -608,8 +605,9 @@ export const roundSheets = query({
     submittedOnly: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const profile = await requireAdmin(ctx);
     const round = await requireRound(ctx, args.roundId);
+    const criteria = await activeCriteria(ctx);
 
     const teamId = args.teamId;
     const sheets = teamId
@@ -646,6 +644,8 @@ export const roundSheets = query({
             sheet.evaluatorName.trim().toLowerCase() !== evaluator.name.trim().toLowerCase()
               ? evaluator.name
               : null,
+          /** The marks themselves, so the master organiser can correct one. */
+          values: sheet.values,
           total: sheet.total,
           maxTotal: sheet.maxTotal,
           percent: sheet.percent,
@@ -668,10 +668,170 @@ export const roundSheets = query({
     return {
       round: { _id: round._id, name: round.name, status: round.status, weight: round.weight },
       rows,
+      /** The rubric the editor renders against, in rubric order. */
+      criteria: criteria.map((c) => ({
+        key: c.key,
+        label: c.label,
+        maxScore: c.maxScore,
+        weight: c.weight,
+      })),
+      maxTotal: maxTotalFor(criteria),
+      /**
+       * Whether this organiser may change what is listed here. Every organiser
+       * can read the roll; only the master organiser named by
+       * MASTER_ADMIN_EMAIL can rewrite or delete a sheet, so the controls are
+       * not rendered for anyone else. The server checks it again on the way in
+       * — this flag only decides whether the buttons are worth showing.
+       */
+      canManage: isMasterAdmin(profile),
       submitted: rows.filter((r) => r.submitted).length,
       drafts: rows.filter((r) => !r.submitted).length,
       evaluators: evaluators.size,
       teamsScored: teamsScored.size,
+    };
+  },
+});
+
+/* -------------------------------------------------------------------------- */
+/* Master organiser: correcting the record                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Rewrite a sheet an evaluator has already signed. Master organiser only.
+ *
+ * This is the one action in the app that can change a team's result without
+ * the evaluator who signed it being involved, so it is held to the account
+ * named by MASTER_ADMIN_EMAIL rather than to the organiser role — see
+ * `requireMasterAdmin`. Unlike `save` it does not care whether the round is
+ * open: a locked round is precisely when a disputed mark gets corrected, and
+ * reopening the round to fix one number would let thirty other sheets move
+ * too.
+ *
+ * Every field is optional and only what is passed is touched, so correcting a
+ * misspelt signature cannot disturb the marks.
+ */
+export const updateSheet = mutation({
+  args: {
+    sheetId: v.id("scores"),
+    values: v.optional(v.array(v.object({ key: v.string(), value: v.number() }))),
+    evaluatorName: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    submitted: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    await requireMasterAdmin(ctx);
+
+    const sheet = await ctx.db.get(args.sheetId);
+    if (!sheet) {
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "That sheet has already been removed.",
+      });
+    }
+
+    const criteria = await activeCriteria(ctx);
+    const patch: {
+      updatedAt: number;
+      evaluatorName?: string;
+      values?: ScoreValue[];
+      total?: number;
+      maxTotal?: number;
+      percent?: number;
+      notes?: string | undefined;
+      submitted?: boolean;
+    } = { updatedAt: Date.now() };
+
+    if (args.evaluatorName !== undefined) {
+      const name = args.evaluatorName.trim();
+      if (!name) {
+        throw new ConvexError({
+          code: "NO_SIGNATURE",
+          message: "A sheet has to stay signed by somebody.",
+        });
+      }
+      patch.evaluatorName = name;
+    }
+
+    /** What the sheet will hold once this patch lands, for the submit check. */
+    const submitted = args.submitted ?? sheet.submitted;
+
+    if (args.values) {
+      const allowed = new Map(criteria.map((c) => [c.key, c]));
+      const clean: ScoreValue[] = [];
+      for (const entry of args.values) {
+        const criterion = allowed.get(entry.key);
+        if (!criterion) continue;
+        if (!Number.isFinite(entry.value)) {
+          throw new ConvexError({ code: "BAD_INPUT", message: "Scores must be numbers." });
+        }
+        if (entry.value < 0 || entry.value > criterion.maxScore) {
+          throw new ConvexError({
+            code: "OUT_OF_RANGE",
+            message: `${criterion.label} must be between 0 and ${criterion.maxScore}.`,
+          });
+        }
+        clean.push({ key: entry.key, value: Math.round(entry.value * 100) / 100 });
+      }
+
+      if (submitted && clean.length !== criteria.length) {
+        throw new ConvexError({
+          code: "INCOMPLETE",
+          message: "A submitted sheet has to carry every criterion.",
+        });
+      }
+
+      const tallied = tally(criteria, clean);
+      patch.values = clean;
+      patch.total = tallied.total;
+      patch.maxTotal = tallied.maxTotal;
+      patch.percent = tallied.percent;
+    } else if (args.submitted === true && sheet.values.length !== criteria.length) {
+      // Promoting a draft without touching its marks: it still has to be whole.
+      throw new ConvexError({
+        code: "INCOMPLETE",
+        message: "That draft is missing criteria, so it cannot be submitted as it stands.",
+      });
+    }
+
+    if (args.notes !== undefined) patch.notes = args.notes.trim() || undefined;
+    if (args.submitted !== undefined) patch.submitted = args.submitted;
+
+    await ctx.db.patch(args.sheetId, patch);
+
+    return {
+      evaluatorName: patch.evaluatorName ?? sheet.evaluatorName ?? "This sheet",
+      teamName: sheet.teamName ?? "the team",
+      total: patch.total ?? sheet.total,
+      maxTotal: patch.maxTotal ?? sheet.maxTotal,
+      submitted,
+    };
+  },
+});
+
+/**
+ * Delete a sheet outright. Master organiser only.
+ *
+ * A round's mark is the mean of its submitted sheets, so removing one moves
+ * the team: this is for a sheet that should never have existed — a duplicate,
+ * or one written against the wrong team — rather than for a mark somebody
+ * disagrees with. There is no undo, which is why the screen asks first.
+ */
+export const removeSheet = mutation({
+  args: { sheetId: v.id("scores") },
+  handler: async (ctx, args) => {
+    await requireMasterAdmin(ctx);
+
+    const sheet = await ctx.db.get(args.sheetId);
+    /** Already gone: two taps on a slow connection should not be an error. */
+    if (!sheet) return { removed: false, evaluatorName: "That sheet", teamName: "the team" };
+
+    const team = await ctx.db.get(sheet.teamId);
+    await ctx.db.delete(args.sheetId);
+
+    return {
+      removed: true,
+      evaluatorName: sheet.evaluatorName ?? "That sheet",
+      teamName: team?.name ?? sheet.teamName ?? "the team",
     };
   },
 });
