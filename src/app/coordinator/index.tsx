@@ -5,8 +5,9 @@ import { Text, View } from 'react-native';
 
 import { TAB_BAR_INSET } from '@/components/role-shell';
 import { TeamCard } from '@/components/team-card';
+import { Button } from '@/components/ui/button';
 import { SearchInput } from '@/components/ui/inputs';
-import { Banner, Card, EmptyState, Pill, Section, StatCard, StatGrid } from '@/components/ui/primitives';
+import { Card, EmptyState, Pill, Section, StatCard, StatGrid } from '@/components/ui/primitives';
 import { Screen, ScreenHeader, ScreenLoading } from '@/components/ui/screen';
 import { Space } from '@/constants/brand';
 import { api } from '@/convex/_generated/api';
@@ -30,8 +31,9 @@ export default function CoordinatorTeams() {
 
   const labLine = useMemo(() => {
     if (!overview) return '';
-    if (overview.labs.length === 0) return 'No lab assigned yet';
-    return overview.labs.map((l) => l.name).join(' · ');
+    // Every coordinator covers every team; the labs are where they are posted.
+    if (overview.labs.length === 0) return 'Every team at the event';
+    return `Posted to ${overview.labs.map((l) => l.name).join(' · ')}`;
   }, [overview]);
 
   return (
@@ -42,17 +44,18 @@ export default function CoordinatorTeams() {
         subtitle={labLine}
       />
 
-      {overview?.labs.length === 0 && (
-        <Banner
-          tone="warn"
-          title="No lab assigned"
-          message="An organiser needs to add you to a lab before teams appear here."
-        />
-      )}
+      {/* The fastest way to a team: the code on the badge is the lookup key. */}
+      <Button
+        label="Scan a team badge"
+        icon="qrcode-scan"
+        accent={accent}
+        onPress={() => router.push('/scan' as never)}
+        full
+      />
 
       <StatGrid>
         <StatCard
-          label="My teams"
+          label="Teams"
           value={overview?.teams ?? '—'}
           icon="account-group-outline"
           color={accent}
@@ -81,7 +84,7 @@ export default function CoordinatorTeams() {
       </StatGrid>
 
       {!!overview && overview.labs.length > 0 && (
-        <Section title="Your labs">
+        <Section title="Your labs" hint="Where you are posted. You can still act on any team.">
           <Card>
             <View style={styles.labs}>
               {overview.labs.map((lab) => (
@@ -100,24 +103,24 @@ export default function CoordinatorTeams() {
       <SearchInput
         value={search}
         onChangeText={setSearch}
-        placeholder="Search your teams"
+        placeholder="Search any team"
         accent={accent}
       />
 
       {teams === undefined ? (
-        <ScreenLoading label="Loading your teams" />
+        <ScreenLoading label="Loading teams" />
       ) : teams.length === 0 ? (
         <EmptyState
           icon="account-group-outline"
-          title={search ? 'No match in your teams' : 'No teams assigned yet'}
+          title={search ? 'No team matches that' : 'No teams yet'}
           message={
             search
               ? 'Try the team code instead.'
-              : 'Teams show up here once an organiser assigns them to you or your lab.'
+              : 'Teams appear here as soon as an organiser imports them.'
           }
         />
       ) : (
-        <Section title="Teams" hint={`${teams.length} assigned to you`}>
+        <Section title="Teams" hint={`${teams.length} at the event`}>
           <View style={styles.list}>
             {teams.map((team) => (
               <TeamCard
@@ -132,8 +135,8 @@ export default function CoordinatorTeams() {
       )}
 
       <Text style={styles.footnote}>
-        Marks and the leaderboard stay with the evaluation panel. You see teams, labs and
-        attendance only.
+        Every team is here, whichever lab it is in, so you can scan a badge and mark whoever
+        is standing in front of you. Marks and the leaderboard stay with the evaluation panel.
       </Text>
     </Screen>
   );

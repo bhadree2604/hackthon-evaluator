@@ -1,7 +1,7 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useMutation, useQuery } from 'convex/react';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { TAB_BAR_INSET } from '@/components/role-shell';
@@ -58,6 +58,7 @@ export default function AdminRounds() {
     weight: string;
   } | null>(null);
   const [deleting, setDeleting] = useState<{ roundId: Id<'rounds'>; name: string } | null>(null);
+  const [viewingPanel, setViewingPanel] = useState<Id<'rounds'> | null>(null);
 
   if (data === undefined) {
     return (
@@ -253,6 +254,16 @@ export default function AdminRounds() {
                     </Text>
                   </View>
 
+                  <Button
+                    label="Who scored this round"
+                    size="sm"
+                    variant="secondary"
+                    icon="account-search-outline"
+                    accent={Brand.cyan}
+                    onPress={() => setViewingPanel(round._id)}
+                    full
+                  />
+
                   <View style={styles.roundActions}>
                     {round.status !== 'open' && (
                       <Button
@@ -385,6 +396,12 @@ export default function AdminRounds() {
           accent={accent}
         />
       </Sheet>
+
+      <RoundPanelSheet
+        roundId={viewingPanel}
+        accent={accent}
+        onClose={() => setViewingPanel(null)}
+      />
 
       <ConfirmDialog
         visible={deleting !== null}
@@ -590,6 +607,139 @@ function Check({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Who evaluated what, for one round.
+ *
+ * The leaderboard says what a team scored; this says who gave it. Sheets are
+ * grouped by team and carry the name the evaluator signed alongside the login
+ * it was written from, so a mark a team queries can be traced to a person
+ * rather than to an account a whole panel was sharing.
+ */
+function RoundPanelSheet({
+  roundId,
+  accent,
+  onClose,
+}: {
+  roundId: Id<'rounds'> | null;
+  accent: string;
+  onClose: () => void;
+}) {
+  const Brand = useColors();
+  const styles = useStyles();
+  const data = useQuery(api.scores.roundSheets, roundId ? { roundId } : 'skip');
+
+  const groups = useMemo(() => {
+    if (!data) return [];
+    const byTeam = new Map<string, { code: string; name: string; rows: typeof data.rows }>();
+    for (const row of data.rows) {
+      const existing = byTeam.get(row.teamId);
+      if (existing) existing.rows.push(row);
+      else byTeam.set(row.teamId, { code: row.teamCode, name: row.teamName, rows: [row] });
+    }
+    return [...byTeam.values()];
+  }, [data]);
+
+  return (
+    <Sheet
+      visible={roundId !== null}
+      onClose={onClose}
+      accent={accent}
+      title={data ? `Who scored ${data.round.name}` : 'Who scored this round'}
+      subtitle="The name each evaluator signed, and the login the sheet came from."
+      footer={<Button label="Close" variant="ghost" onPress={onClose} style={styles.flex} />}>
+      {data === undefined ? (
+        <ScreenLoading label="Loading the panel" />
+      ) : groups.length === 0 ? (
+        <EmptyState
+          icon="clipboard-outline"
+          title="Nobody has scored this round yet"
+          message="Sheets appear here the moment an evaluator saves one, draft or submitted."
+        />
+      ) : (
+        <>
+          <View style={styles.pillRow}>
+            <Pill
+              label={`${data.submitted} submitted`}
+              icon="check-circle-outline"
+              color={Brand.green}
+              compact
+            />
+            {data.drafts > 0 && (
+              <Pill
+                label={`${data.drafts} in draft`}
+                icon="circle-edit-outline"
+                color={Brand.amber}
+                compact
+              />
+            )}
+            <Pill
+              label={`${data.evaluators} evaluator${data.evaluators === 1 ? '' : 's'}`}
+              icon="account-multiple-outline"
+              color={Brand.cyan}
+              compact
+            />
+            <Pill
+              label={`${data.teamsScored} team${data.teamsScored === 1 ? '' : 's'}`}
+              icon="account-group-outline"
+              color={Brand.lilac}
+              compact
+            />
+          </View>
+
+          {groups.map((group) => (
+            <Card key={group.code} style={styles.panelTeam}>
+              <View style={styles.panelTeamHead}>
+                <Text style={[styles.panelTeamCode, { color: accent }]}>{group.code}</Text>
+                <Text style={styles.panelTeamName} numberOfLines={1}>
+                  {group.name}
+                </Text>
+              </View>
+
+              {group.rows.map((row) => (
+                <View key={row._id} style={styles.panelRow}>
+                  <MaterialCommunityIcons
+                    name={row.submitted ? 'check-circle' : 'circle-edit-outline'}
+                    size={15}
+                    color={row.submitted ? Brand.green : Brand.amber}
+                  />
+                  <View style={styles.flex}>
+                    <Text style={styles.panelName}>{row.evaluatorName}</Text>
+                    <Text style={styles.panelMeta}>
+                      {row.evaluatorEmail ?? 'no login on record'}
+                    </Text>
+                    {!!row.signedForAnother && (
+                      <Text style={styles.panelWarn}>
+                        Written from {row.signedForAnother}&apos;s account
+                      </Text>
+                    )}
+                    {!!row.notes && <Text style={styles.panelNote}>{row.notes}</Text>}
+                  </View>
+                  <View style={styles.panelScore}>
+                    <Text style={[styles.panelTotal, { color: accent }]}>
+                      {Math.round(row.total * 10) / 10}
+                      <Text style={styles.panelMax}> / {row.maxTotal}</Text>
+                    </Text>
+                    <Text style={styles.panelMeta}>
+                      {new Date(row.updatedAt).toLocaleString([], {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </Card>
+          ))}
+        </>
+      )}
+    </Sheet>
+  );
+}
+
 const useStyles = makeStyles((Brand) => ({
   flex: { flex: 1 },
 
@@ -643,6 +793,19 @@ const useStyles = makeStyles((Brand) => ({
   coverageHint: { color: Brand.textFaint, fontSize: 11.5 },
 
   roundActions: { flexDirection: 'row', alignItems: 'center', gap: Space.sm },
+
+  panelTeam: { gap: Space.md },
+  panelTeamHead: { flexDirection: 'row', alignItems: 'baseline', gap: Space.sm },
+  panelTeamCode: { fontSize: 12.5, fontWeight: '800', letterSpacing: 1 },
+  panelTeamName: { color: Brand.text, fontSize: 14.5, fontWeight: '700', flex: 1 },
+  panelRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Space.sm },
+  panelName: { color: Brand.text, fontSize: 14, fontWeight: '700' },
+  panelMeta: { color: Brand.textFaint, fontSize: 11, marginTop: 2 },
+  panelWarn: { color: Brand.amber, fontSize: 11, marginTop: 2 },
+  panelNote: { color: Brand.textMuted, fontSize: 11.5, lineHeight: 16, marginTop: 4 },
+  panelScore: { alignItems: 'flex-end' },
+  panelTotal: { fontSize: 15, fontWeight: '800' },
+  panelMax: { color: Brand.textFaint, fontSize: 11, fontWeight: '700' },
 
   explainer: { gap: Space.md, borderRadius: Radius.lg },
   explainerTitle: { color: Brand.text, fontSize: 15, fontWeight: '700' },

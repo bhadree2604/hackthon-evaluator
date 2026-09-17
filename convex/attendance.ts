@@ -3,38 +3,18 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import {
-  coordinatorOwnsTeam,
-  requireCoordinator,
-  requireStaff,
-  type Ctx,
-} from "./lib/guards";
+import { canActOnTeam, requireCoordinator, requireStaff, type Ctx } from "./lib/guards";
 import { attendanceStatusValidator } from "./schema";
 
 const PRESENT = new Set(["present", "late"]);
 
-async function teamsForProfile(ctx: Ctx, profile: Doc<"profiles">) {
-  if (profile.role !== "coordinator") return ctx.db.query("teams").collect();
-
-  const byCoordinator = await ctx.db
-    .query("teams")
-    .withIndex("by_coordinator", (q) => q.eq("coordinatorId", profile._id))
-    .collect();
-  const seen = new Set<Id<"teams">>(byCoordinator.map((t) => t._id));
-  const result = [...byCoordinator];
-  for (const labId of profile.labIds) {
-    const inLab = await ctx.db
-      .query("teams")
-      .withIndex("by_lab", (q) => q.eq("labId", labId))
-      .collect();
-    for (const t of inLab) {
-      if (!seen.has(t._id)) {
-        seen.add(t._id);
-        result.push(t);
-      }
-    }
-  }
-  return result;
+/**
+ * The register covers the whole event for everyone on staff. A coordinator
+ * used to see only their own labs, which meant the person holding the badge
+ * of a team from the next room could not mark it.
+ */
+async function allTeams(ctx: Ctx) {
+  return ctx.db.query("teams").collect();
 }
 
 /**
@@ -45,7 +25,7 @@ export const board = query({
   args: { sessionId: v.id("attendanceSessions"), labId: v.optional(v.id("labs")) },
   handler: async (ctx, args) => {
     const profile = await requireStaff(ctx);
-    let teams = await teamsForProfile(ctx, profile);
+    let teams = await allTeams(ctx);
     if (args.labId) teams = teams.filter((t) => t.labId === args.labId);
     teams = teams.filter((t) => t.status === "active");
 
@@ -89,9 +69,8 @@ export const board = query({
           name: team.name,
           labName: team.labId ? (labById.get(team.labId)?.name ?? null) : null,
           tableNo: team.tableNo ?? null,
-          // coordinatorOwnsTeam already lets organisers through, by role
-          // membership rather than the legacy single `role` field.
-          canMark: coordinatorOwnsTeam(profile, team),
+          // Read from every role the account holds, not the legacy primary one.
+          canMark: canActOnTeam(profile),
           members: memberRows,
           present,
           marked,
@@ -154,9 +133,6 @@ export const mark = mutation({
 
     const team = await ctx.db.get(member.teamId);
     if (!team) throw new ConvexError({ code: "NOT_FOUND", message: "Team not found." });
-    if (!coordinatorOwnsTeam(profile, team)) {
-      throw new ConvexError({ code: "FORBIDDEN", message: "This team is not assigned to you." });
-    }
 
     const session = await ctx.db.get(args.sessionId);
     if (!session || !session.active) {
@@ -179,9 +155,6 @@ export const markTeam = mutation({
     const profile = await requireCoordinator(ctx);
     const team = await ctx.db.get(args.teamId);
     if (!team) throw new ConvexError({ code: "NOT_FOUND", message: "Team not found." });
-    if (!coordinatorOwnsTeam(profile, team)) {
-      throw new ConvexError({ code: "FORBIDDEN", message: "This team is not assigned to you." });
-    }
 
     const session = await ctx.db.get(args.sessionId);
     if (!session || !session.active) {
@@ -203,8 +176,8 @@ export const markTeam = mutation({
 export const overview = query({
   args: { sessionId: v.optional(v.id("attendanceSessions")) },
   handler: async (ctx, args) => {
-    const profile = await requireStaff(ctx);
-    const teams = (await teamsForProfile(ctx, profile)).filter((t) => t.status === "active");
+    await requireStaff(ctx);
+    const teams = (await allTeams(ctx)).filter((t) => t.status === "active");
 
     const sessions = (
       await ctx.db.query("attendanceSessions").withIndex("by_order").collect()
@@ -272,8 +245,8 @@ export const overview = query({
 export const sessionSummary = query({
   args: { sessionId: v.id("attendanceSessions") },
   handler: async (ctx, args) => {
-    const profile = await requireStaff(ctx);
-    const teams = (await teamsForProfile(ctx, profile)).filter((t) => t.status === "active");
+    await requireStaff(ctx);
+    const teams = (await allTeams(ctx)).filter((t) => t.status === "active");
     const teamIds = new Set(teams.map((t) => t._id));
 
     let total = 0;

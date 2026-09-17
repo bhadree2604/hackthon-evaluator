@@ -9,8 +9,8 @@ Four sign-ins, each with its own screen and its own slice of the event:
 | Role | Sees |
 | --- | --- |
 | **Participant** | Their team, every member's details and photo, payment status and pay link, lab and table, their own attendance, event announcements, and a help-desk chat straight to the organisers |
-| **Evaluator** | Every team and its members, a multi-criteria score sheet per team, the live leaderboard, read-only attendance |
-| **Coordinator** | Only the teams in their assigned labs, and attendance marking per member per session. No marks, no leaderboard |
+| **Evaluator** | Every team and its members, a multi-criteria score sheet per team signed with the evaluator's own name, the live leaderboard, read-only attendance |
+| **Coordinator** | Every team at the event, the badge scanner, and attendance marking per member per session. Lab assignment is shown but does not restrict them. No marks, no leaderboard |
 | **Organiser (admin)** | Everything: import, team and lab assignment, people and invites, rubric, sessions, participant logins, chat inbox, announcements |
 
 ---
@@ -57,7 +57,7 @@ npx expo start -c
 1. Open the app → **Organiser** → *Create your account*.
 2. While no organiser exists, the screen asks for the setup key. Enter
    `ADMIN_SETUP_KEY`.
-3. On the Overview screen tap **Load defaults** to seed the five-criterion
+3. On the Overview screen tap **Load defaults** to seed the ten-criterion
    rubric and the eight attendance sessions.
 
 Everyone else is invite-only: an organiser adds an email under **People**, and
@@ -87,8 +87,9 @@ Member #,Member Name,Email,Phone,Department,Year,Roll No,Photo,Team lead
 - A `Problem Code` that is not a code (an idea typed into the box) is kept as
   the project title instead.
 - `Photo` and `Team Photo` are image URLs; they render on the participant screen.
-- `Coordinator Email` links the team to a coordinator who **already has an
-  account** — invite coordinators first.
+- `Coordinator Email` names the coordinator shown on the team's record; they
+  must **already have an account**, so invite coordinators first. It is a label,
+  not a permission: every coordinator can see and mark every team.
 - Labs named in the `Lab` column are created automatically.
 
 Re-uploading a corrected sheet **updates** matching team codes rather than

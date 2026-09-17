@@ -1,6 +1,6 @@
 import { ConvexError } from "convex/values";
 
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { authComponent } from "../auth";
 
@@ -99,13 +99,16 @@ export async function requireStaff(ctx: Ctx) {
 }
 
 /**
- * Coordinators only ever touch their own teams. Organisers bypass.
- * Ownership is either an explicit team assignment or the team's lab.
+ * Every coordinator covers the whole event, not one lab.
+ *
+ * Teams move rooms on the day and a badge is handed to whichever coordinator
+ * is standing in front of it, so scoping a coordinator to their assigned labs
+ * left the one person able to help unable to act. The lab assignment is still
+ * recorded and still shown, because it is what a team is told to report to,
+ * but it no longer gates what a coordinator may read or mark.
  */
-export function coordinatorOwnsTeam(profile: Doc<"profiles">, team: Doc<"teams">) {
-  if (hasRole(profile, "admin")) return true;
-  if (team.coordinatorId === profile._id) return true;
-  return !!team.labId && profile.labIds.includes(team.labId);
+export function canActOnTeam(profile: Doc<"profiles">) {
+  return hasRole(profile, "coordinator") || hasRole(profile, "admin");
 }
 
 /** The team a participant belongs to. Throws for anyone without one. */
@@ -120,16 +123,6 @@ export async function requireOwnTeam(ctx: Ctx) {
   const team = await ctx.db.get(profile.teamId);
   if (!team) {
     throw new ConvexError({ code: "NOT_FOUND", message: "Your team record was removed." });
-  }
-  return { profile, team };
-}
-
-export async function requireOwnedTeam(ctx: Ctx, teamId: Id<"teams">) {
-  const profile = await requireCoordinator(ctx);
-  const team = await ctx.db.get(teamId);
-  if (!team) throw new ConvexError({ code: "NOT_FOUND", message: "Team not found." });
-  if (!coordinatorOwnsTeam(profile, team)) {
-    throw new ConvexError({ code: "FORBIDDEN", message: "This team is not assigned to you." });
   }
   return { profile, team };
 }

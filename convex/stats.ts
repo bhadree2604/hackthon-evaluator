@@ -39,7 +39,9 @@ export const adminOverview = query({
       .withIndex("by_room", (q) => q.eq("room", "general"))
       .order("desc")
       .take(100);
-    const since = admin.chatLastReadAt ?? 0;
+    // An organiser who has never opened the room has nothing waiting, rather
+    // than the entire history. Same rule as `chat.unreadCount`.
+    const since = admin.chatLastReadAt ?? Date.now();
     const unreadMessages = recentMessages.filter(
       (m) => m.createdAt > since && m.authorProfileId !== admin._id,
     ).length;
@@ -126,24 +128,10 @@ export const coordinatorOverview = query({
   handler: async (ctx) => {
     const profile = await requireCoordinator(ctx);
 
-    const byCoordinator = await ctx.db
-      .query("teams")
-      .withIndex("by_coordinator", (q) => q.eq("coordinatorId", profile._id))
-      .collect();
-    const seen = new Set(byCoordinator.map((t) => t._id));
-    const teams = [...byCoordinator];
-    for (const labId of profile.labIds) {
-      const inLab = await ctx.db
-        .query("teams")
-        .withIndex("by_lab", (q) => q.eq("labId", labId))
-        .collect();
-      for (const t of inLab) {
-        if (!seen.has(t._id)) {
-          seen.add(t._id);
-          teams.push(t);
-        }
-      }
-    }
+    // The whole event, not the coordinator's own labs. The labs below are
+    // still listed, because that is where this coordinator is posted, but
+    // they no longer decide which teams are counted here.
+    const teams = await ctx.db.query("teams").collect();
 
     const activeTeams = teams.filter((t) => t.status === "active");
     let memberCount = 0;

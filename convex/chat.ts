@@ -8,6 +8,20 @@ const ROOM = "general";
 const MAX_BODY = 2000;
 
 /**
+ * Where "unread" starts for someone who has never opened the room.
+ *
+ * An account signing in for the first time has no `chatLastReadAt`, and
+ * treating that as the epoch made every message ever posted count as pending:
+ * a coordinator joining on day two was met with a badge of eighty and an alert
+ * for a conversation that had already happened. A profile without the stamp
+ * has nothing waiting; `primeRead` writes the stamp on the first launch, and
+ * everything after that moment is genuinely new.
+ */
+function readSince(profile: { chatLastReadAt?: number }, now: number) {
+  return profile.chatLastReadAt ?? now;
+}
+
+/**
  * The room shows a participant with their team, and staff with their role, so
  * everyone can tell at a glance who is speaking.
  */
@@ -42,9 +56,8 @@ export const room = query({
       mine: m.authorProfileId === profile._id,
     }));
 
-    const unread = messages.filter(
-      (m) => !m.mine && m.createdAt > (profile.chatLastReadAt ?? 0),
-    ).length;
+    const since = readSince(profile, Date.now());
+    const unread = messages.filter((m) => !m.mine && m.createdAt > since).length;
 
     return {
       messages,
@@ -115,6 +128,22 @@ export const send = mutation({
   },
 });
 
+/**
+ * Called once per launch, before the room has ever been opened. Anything
+ * posted before this stamp belongs to the part of the event this account was
+ * not here for, so it is never announced.
+ */
+export const primeRead = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const profile = await getProfile(ctx);
+    if (!profile || !profile.active) return null;
+    if (profile.chatLastReadAt !== undefined) return null;
+    await ctx.db.patch(profile._id, { chatLastReadAt: Date.now() });
+    return null;
+  },
+});
+
 export const markRead = mutation({
   args: {},
   handler: async (ctx) => {
@@ -141,7 +170,7 @@ export const unreadCount = query({
     // Fails soft for the same reason as announcements.feed: it runs at boot.
     const profile = await getProfile(ctx);
     if (!profile || !profile.active) return 0;
-    const since = profile.chatLastReadAt ?? 0;
+    const since = readSince(profile, Date.now());
 
     const recent = await ctx.db
       .query("messages")

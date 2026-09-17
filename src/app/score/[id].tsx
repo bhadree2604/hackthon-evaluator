@@ -183,6 +183,7 @@ function RoundSheet({
   const save = useMutation(api.scores.save);
 
   const [values, setValues] = useState<Record<string, number | null>>({});
+  const [signature, setSignature] = useState('');
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState<'draft' | 'submit' | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -201,6 +202,7 @@ function RoundSheet({
     const next: Record<string, number | null> = {};
     for (const criterion of sheet.criteria) next[criterion.key] = criterion.value;
     setValues(next);
+    setSignature(sheet.evaluatorName);
     setNotes(sheet.notes);
   }, [roundId, sheet]);
 
@@ -230,7 +232,8 @@ function RoundSheet({
     );
   }
 
-  const complete = running.filled === sheet.criteria.length;
+  const signed = signature.trim().length > 0;
+  const complete = running.filled === sheet.criteria.length && signed;
   const percent = sheet.maxTotal > 0 ? (running.total / sheet.maxTotal) * 100 : 0;
 
   async function write(submit: boolean) {
@@ -241,10 +244,17 @@ function RoundSheet({
         .map((criterion) => ({ key: criterion.key, value: values[criterion.key] }))
         .filter((entry): entry is { key: string; value: number } => entry.value !== null);
 
-      const result = await save({ roundId, teamId, values: payload, notes, submit });
+      const result = await save({
+        roundId,
+        teamId,
+        values: payload,
+        evaluatorName: signature,
+        notes,
+        submit,
+      });
       onSaved(
         submit
-          ? `Submitted ${result.total} of ${result.maxTotal} for ${result.roundName}`
+          ? `${result.evaluatorName} submitted ${result.total} of ${result.maxTotal} for ${result.roundName}`
           : 'Draft saved',
       );
     } catch (error) {
@@ -280,6 +290,33 @@ function RoundSheet({
           message="This sheet counts towards the round. Changing it and submitting again replaces it."
         />
       )}
+
+      {/*
+        * Signed, not just logged in. One evaluator account is often passed
+        * around a panel, so the sheet records who actually sat with the team
+        * rather than whose phone it was typed on.
+        */}
+      <Card style={styles.signature}>
+        <TextField
+          label="Your name, as the evaluator of this team"
+          value={signature}
+          onChangeText={setSignature}
+          placeholder="Who is scoring this team"
+          accent={accent}
+          editable={sheet.editable}
+          autoCapitalize="words"
+        />
+        <View style={styles.signatureFoot}>
+          <MaterialCommunityIcons
+            name="account-check-outline"
+            size={13}
+            color={Brand.textFaint}
+          />
+          <Text style={styles.signatureHint}>
+            Saved against {sheet.evaluatorEmail} and shown to the organisers with this round.
+          </Text>
+        </View>
+      </Card>
 
       <Card style={styles.tally}>
         <View style={styles.tallyTop}>
@@ -368,7 +405,9 @@ function RoundSheet({
 
       {sheet.editable && !complete && (
         <Text style={styles.footnote}>
-          Fill in every criterion to submit. A draft can be saved at any point.
+          {signed
+            ? 'Fill in every criterion to submit. A draft can be saved at any point.'
+            : 'Enter your name above, then fill in every criterion to submit.'}
         </Text>
       )}
 
@@ -377,7 +416,7 @@ function RoundSheet({
         title={sheet.submitted ? 'Replace your submitted marks?' : 'Submit these marks?'}
         message={`${Math.round(running.total * 10) / 10} of ${sheet.maxTotal} for ${
           sheet.round.name
-        }. You can come back and change it while the round is open.`}
+        }, signed by ${signature.trim()}. You can come back and change it while the round is open.`}
         confirmLabel={sheet.submitted ? 'Replace' : 'Submit'}
         loading={busy === 'submit'}
         onConfirm={() => write(true)}
@@ -412,6 +451,10 @@ const useStyles = makeStyles((Brand) => ({
     backgroundColor: Brand.inputBg,
   },
   chipText: { fontSize: 12.5, fontWeight: '700' },
+
+  signature: { gap: Space.sm },
+  signatureFoot: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  signatureHint: { color: Brand.textFaint, flex: 1, fontSize: 11.5, lineHeight: 16 },
 
   tally: { gap: Space.md },
   tallyTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

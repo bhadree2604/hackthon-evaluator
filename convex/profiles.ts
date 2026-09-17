@@ -117,6 +117,8 @@ export const ensureProfile = mutation({
         teamId: invite.teamId,
         memberId: invite.memberId,
         pushTokens: [],
+        /** A new account starts level with the room: no backlog to catch up on. */
+        chatLastReadAt: Date.now(),
         active: true,
         createdAt: Date.now(),
         lastSeenAt: Date.now(),
@@ -146,6 +148,8 @@ export const ensureProfile = mutation({
         teamId: team?._id,
         memberId: member._id,
         pushTokens: [],
+        /** A new account starts level with the room: no backlog to catch up on. */
+        chatLastReadAt: Date.now(),
         active: true,
         createdAt: Date.now(),
         lastSeenAt: Date.now(),
@@ -172,6 +176,8 @@ export const ensureProfile = mutation({
         isMaster: claimsMaster ? true : undefined,
         labIds: [],
         pushTokens: [],
+        /** A new account starts level with the room: no backlog to catch up on. */
+        chatLastReadAt: Date.now(),
         active: true,
         createdAt: Date.now(),
         lastSeenAt: Date.now(),

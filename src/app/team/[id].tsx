@@ -280,8 +280,12 @@ export default function TeamDetail() {
                   <View style={styles.sheetHead}>
                     <View style={styles.flex}>
                       <Text style={styles.sheetName}>{sheet.evaluatorName}</Text>
+                      {/* The login behind the signature. Organisers only. */}
+                      {!!sheet.evaluatorEmail && (
+                        <Text style={styles.sheetMeta}>{sheet.evaluatorEmail}</Text>
+                      )}
                       <Text style={styles.sheetMeta}>
-                        {sheet.submitted ? 'Submitted' : 'Draft'} ·{' '}
+                        {sheet.roundName} · {sheet.submitted ? 'Submitted' : 'Draft'} ·{' '}
                         {new Date(sheet.updatedAt).toLocaleString([], {
                           day: 'numeric',
                           month: 'short',

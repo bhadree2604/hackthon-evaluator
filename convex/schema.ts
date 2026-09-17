@@ -262,6 +262,18 @@ export default defineSchema({
      * rounds existed still validate; `rounds.adoptLegacyScores` stamps them.
      */
     roundId: v.optional(v.id("rounds")),
+    /**
+     * Who actually sat in front of the team, as they signed the sheet, next to
+     * the account the sheet was written from. Both are snapshots taken at save
+     * time: a sheet has to stay readable as the evaluation that happened, even
+     * if the profile is later renamed or the account is handed to someone else.
+     * Optional so sheets written before signing existed still validate.
+     */
+    evaluatorName: v.optional(v.string()),
+    evaluatorEmail: v.optional(v.string()),
+    /** The team as it was named when it was scored, for the same reason. */
+    teamCode: v.optional(v.string()),
+    teamName: v.optional(v.string()),
     values: v.array(v.object({ key: v.string(), value: v.number() })),
     total: v.number(),
     maxTotal: v.number(),

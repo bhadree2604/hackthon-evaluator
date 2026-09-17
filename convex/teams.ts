@@ -1,56 +1,18 @@
 import { ConvexError, v } from "convex/values";
 
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import {
-  coordinatorOwnsTeam,
-  requireAdmin,
-  requireStaff,
-  type Ctx,
-} from "./lib/guards";
+import { hasRole, requireAdmin, requireStaff } from "./lib/guards";
 import { rosterOrder } from "./lib/roster";
 import { paymentStatusValidator, teamStatusValidator, trackValidator } from "./schema";
-
-/**
- * Teams the caller is allowed to see.
- * - admin / evaluator: every team
- * - coordinator: teams explicitly assigned to them, plus teams in their labs
- */
-async function visibleTeams(ctx: Ctx, profile: Doc<"profiles">) {
-  if (profile.role !== "coordinator") {
-    return ctx.db.query("teams").collect();
-  }
-
-  const byCoordinator = await ctx.db
-    .query("teams")
-    .withIndex("by_coordinator", (q) => q.eq("coordinatorId", profile._id))
-    .collect();
-
-  const seen = new Set<Id<"teams">>(byCoordinator.map((t) => t._id));
-  const result = [...byCoordinator];
-
-  for (const labId of profile.labIds) {
-    const inLab = await ctx.db
-      .query("teams")
-      .withIndex("by_lab", (q) => q.eq("labId", labId))
-      .collect();
-    for (const team of inLab) {
-      if (!seen.has(team._id)) {
-        seen.add(team._id);
-        result.push(team);
-      }
-    }
-  }
-  return result;
-}
 
 /**
  * Coordinators are explicitly not part of the evaluation panel, so scores are
  * stripped here rather than merely hidden in the UI.
  */
 async function decorate(ctx: QueryCtx, teams: Doc<"teams">[], viewer: Doc<"profiles">) {
-  const canSeeScores = viewer.role === "admin" || viewer.role === "evaluator";
+  const canSeeScores = hasRole(viewer, "admin") || hasRole(viewer, "evaluator");
   const labs = await ctx.db.query("labs").collect();
   const labById = new Map(labs.map((l) => [l._id, l]));
 
@@ -135,7 +97,9 @@ export const list = query({
   },
   handler: async (ctx, args) => {
     const profile = await requireStaff(ctx);
-    let teams = await visibleTeams(ctx, profile);
+    // Every member of staff sees every team; a coordinator is not fenced into
+    // their own labs, because the team in front of them is rarely in one.
+    let teams = await ctx.db.query("teams").collect();
 
     if (args.labId) teams = teams.filter((t) => t.labId === args.labId);
     if (args.status) teams = teams.filter((t) => t.status === args.status);
@@ -194,9 +158,6 @@ export const get = query({
     const profile = await requireStaff(ctx);
     const team = await ctx.db.get(args.teamId);
     if (!team) return null;
-    if (profile.role === "coordinator" && !coordinatorOwnsTeam(profile, team)) {
-      throw new ConvexError({ code: "FORBIDDEN", message: "This team is not assigned to you." });
-    }
 
     const [card] = await decorate(ctx, [team], profile);
     const members = (
@@ -233,27 +194,43 @@ export const get = query({
       .query("scores")
       .withIndex("by_team", (q) => q.eq("teamId", team._id))
       .collect();
-    const evaluatorNames = new Map<string, string>();
+    const evaluators = new Map<string, Doc<"profiles">>();
     for (const s of allScores) {
       const e = await ctx.db.get(s.evaluatorId);
-      if (e) evaluatorNames.set(s.evaluatorId, e.name);
+      if (e) evaluators.set(s.evaluatorId, e);
     }
 
-    const canSeeAllScores = profile.role === "admin";
+    const rounds = await ctx.db.query("rounds").collect();
+    const roundById = new Map(rounds.map((r) => [r._id, r]));
+
+    const canSeeAllScores = hasRole(profile, "admin");
     const scores = allScores
       .filter((s) => canSeeAllScores || s.evaluatorId === profile._id)
-      .map((s) => ({
-        _id: s._id,
-        evaluatorId: s.evaluatorId,
-        evaluatorName: evaluatorNames.get(s.evaluatorId) ?? "Evaluator",
-        values: s.values,
-        total: s.total,
-        maxTotal: s.maxTotal,
-        percent: s.percent,
-        notes: s.notes,
-        submitted: s.submitted,
-        updatedAt: s.updatedAt,
-      }));
+      .map((s) => {
+        const evaluator = evaluators.get(s.evaluatorId);
+        const round = s.roundId ? roundById.get(s.roundId) : undefined;
+        return {
+          _id: s._id,
+          roundId: s.roundId ?? null,
+          roundName: round?.name ?? "Unassigned round",
+          roundOrder: round?.order ?? 99,
+          evaluatorId: s.evaluatorId,
+          /** The name signed on the sheet, not whatever the account is called now. */
+          evaluatorName: s.evaluatorName ?? evaluator?.name ?? "Evaluator",
+          /** The login it was written from. Organisers only. */
+          evaluatorEmail: canSeeAllScores ? (s.evaluatorEmail ?? evaluator?.email ?? null) : null,
+          values: s.values,
+          total: s.total,
+          maxTotal: s.maxTotal,
+          percent: s.percent,
+          notes: s.notes,
+          submitted: s.submitted,
+          updatedAt: s.updatedAt,
+        };
+      })
+      .sort(
+        (a, b) => a.roundOrder - b.roundOrder || a.evaluatorName.localeCompare(b.evaluatorName),
+      );
 
     return { team: card, members, attendanceBySession, scores };
   },
@@ -277,13 +254,6 @@ export const byCode = query({
       .withIndex("by_code", (q) => q.eq("code", code))
       .unique();
     if (!team) return null;
-
-    if (profile.role === "coordinator" && !coordinatorOwnsTeam(profile, team)) {
-      throw new ConvexError({
-        code: "FORBIDDEN",
-        message: `${team.code} is not one of your teams.`,
-      });
-    }
 
     const [card] = await decorate(ctx, [team], profile);
     const members = (

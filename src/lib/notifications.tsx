@@ -218,7 +218,12 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       const isParticipant = roles.includes('participant');
 
       if (data.type === 'chat') {
-        router.push(isParticipant ? '/participant/chat' : '/admin/chats');
+        const chatRoute = isParticipant
+          ? '/participant/chat'
+          : roles.includes('admin')
+            ? '/admin/chats'
+            : '/coordinator/chats';
+        router.push(chatRoute as never);
       } else if (data.type === 'announcement') {
         if (isParticipant) router.push('/participant/updates');
       } else if (data.type === 'results') {
@@ -295,7 +300,7 @@ function LiveAlerts({
   /** True once this device has a push token, so the server alert wins. */
   hapticsOnly: boolean;
 }) {
-  const { status, profile } = useSession();
+  const { status, profile, roles } = useSession();
   /**
    * The stored session can report authenticated a beat before Convex holds a
    * usable token. Subscribing in that window runs these queries as a signed
@@ -306,10 +311,27 @@ function LiveAlerts({
 
   const feed = useQuery(api.announcements.feed, enabled ? { limit: 10 } : 'skip');
   const unread = useQuery(api.chat.unreadCount, enabled ? {} : 'skip');
+  const primeRead = useMutation(api.chat.primeRead);
 
   const seenAnnouncement = useRef<string | null>(null);
   const primed = useRef(false);
   const lastUnread = useRef<number | null>(null);
+  const primedRoom = useRef<string | null>(null);
+
+  /**
+   * An account that has never opened the room starts level with it, rather
+   * than inheriting every message posted before it signed in. Without this a
+   * coordinator arriving on day two was alerted about a conversation that had
+   * already been had. Runs once per account, and is a no-op after that.
+   */
+  useEffect(() => {
+    if (!enabled || !profile) return;
+    if (primedRoom.current === profile._id) return;
+    primedRoom.current = profile._id;
+    primeRead({}).catch(() => {
+      // The badge simply stays as it was; nothing on screen depends on it.
+    });
+  }, [enabled, primeRead, profile]);
 
   useEffect(() => {
     if (!feed || feed.length === 0) return;
@@ -334,16 +356,17 @@ function LiveAlerts({
       return;
     }
     if (unread > lastUnread.current) {
-      const isAdmin = profile?.role === 'admin';
+      // Staff are being asked something; a participant is being answered.
+      const isStaff = roles.includes('admin') || roles.includes('coordinator');
       void alertNow(
-        isAdmin ? 'New message from a team' : 'Reply from the organisers',
-        isAdmin ? 'Open the Chats tab to respond.' : 'Open your chat to read it.',
-        isAdmin,
+        isStaff ? 'New message in the help desk' : 'Reply from the organisers',
+        isStaff ? 'Open the Chat tab to respond.' : 'Open your chat to read it.',
+        isStaff,
         { hapticsOnly },
       );
     }
     lastUnread.current = unread;
-  }, [alertNow, hapticsOnly, profile?.role, unread]);
+  }, [alertNow, hapticsOnly, roles, unread]);
 
   return null;
 }

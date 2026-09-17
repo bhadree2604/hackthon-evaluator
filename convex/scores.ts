@@ -73,6 +73,19 @@ export const mySheet = query({
 
     const byKey = new Map((existing?.values ?? []).map((entry) => [entry.key, entry.value]));
 
+    /**
+     * On a fresh sheet, fall back to the last name this account signed rather
+     * than the account's own name. A panel sharing one login would otherwise
+     * have to retype the signature for all thirty teams.
+     */
+    const lastSigned = existing?.evaluatorName
+      ? null
+      : await ctx.db
+          .query("scores")
+          .withIndex("by_evaluator", (q) => q.eq("evaluatorId", profile._id))
+          .order("desc")
+          .first();
+
     return {
       round: {
         _id: round._id,
@@ -81,6 +94,14 @@ export const mySheet = query({
         weight: round.weight,
         status: round.status,
       },
+      /**
+       * Who is signing. Pre-filled with whatever was signed last time, or the
+       * account's own name on a fresh sheet, so the common case is one glance
+       * rather than one more thing to type.
+       */
+      evaluatorName: existing?.evaluatorName ?? lastSigned?.evaluatorName ?? profile.name,
+      /** The account the sheet is written from. Never editable. */
+      evaluatorEmail: profile.email,
       criteria: criteria.map((c) => ({
         key: c.key,
         label: c.label,
@@ -106,12 +127,26 @@ export const save = mutation({
     roundId: v.id("rounds"),
     teamId: v.id("teams"),
     values: v.array(v.object({ key: v.string(), value: v.number() })),
+    /**
+     * The evaluator signs the sheet by name. A panel shares a login more often
+     * than anyone admits, so the account alone does not say who was in the
+     * room; this is the answer to "who scored this team in this round".
+     */
+    evaluatorName: v.string(),
     notes: v.optional(v.string()),
     submit: v.boolean(),
   },
   handler: async (ctx, args) => {
     const profile = await requireEvaluator(ctx);
     const round = await requireRound(ctx, args.roundId);
+
+    const evaluatorName = args.evaluatorName.trim();
+    if (!evaluatorName) {
+      throw new ConvexError({
+        code: "NO_SIGNATURE",
+        message: "Enter your name before scoring this team.",
+      });
+    }
 
     if (round.status !== "open") {
       throw new ConvexError({
@@ -174,8 +209,17 @@ export const save = mutation({
       )
       .unique();
 
+    /** Stamped on every save, so a rename never rewrites history. */
+    const stamp = {
+      evaluatorName,
+      evaluatorEmail: profile.email,
+      teamCode: team.code,
+      teamName: team.name,
+    };
+
     if (existing) {
       await ctx.db.patch(existing._id, {
+        ...stamp,
         values: clean,
         total,
         maxTotal,
@@ -186,6 +230,7 @@ export const save = mutation({
       });
     } else {
       await ctx.db.insert("scores", {
+        ...stamp,
         roundId: args.roundId,
         teamId: args.teamId,
         evaluatorId: profile._id,
@@ -200,7 +245,15 @@ export const save = mutation({
       });
     }
 
-    return { total, maxTotal, percent, submitted: args.submit, roundName: round.name };
+    return {
+      total,
+      maxTotal,
+      percent,
+      submitted: args.submit,
+      roundName: round.name,
+      teamName: team.name,
+      evaluatorName,
+    };
   },
 });
 
@@ -521,8 +574,11 @@ export const panel = query({
           _id: s._id,
           roundId: s.roundId ?? null,
           roundName: round?.name ?? "Unassigned",
-          evaluatorName: evaluator?.name ?? "Evaluator",
-          evaluatorEmail: evaluator?.email ?? null,
+          /** What was signed on the sheet; the account name is the fallback. */
+          evaluatorName: s.evaluatorName ?? evaluator?.name ?? "Evaluator",
+          evaluatorEmail: s.evaluatorEmail ?? evaluator?.email ?? null,
+          /** The account it was written from, even if the sheet was signed differently. */
+          evaluatorAccountName: evaluator?.name ?? null,
           values: s.values,
           total: s.total,
           maxTotal: s.maxTotal,
@@ -533,6 +589,90 @@ export const panel = query({
         };
       }),
     );
+  },
+});
+
+/**
+ * Admin only: the roll of who evaluated what, for one round.
+ *
+ * The leaderboard answers "what did this team score"; this answers "who gave
+ * it". One row per sheet, carrying the name the evaluator signed, the account
+ * it came from and the team as it was named at the time, so a disputed mark
+ * can be traced back to a person rather than to a login.
+ */
+export const roundSheets = query({
+  args: {
+    roundId: v.id("rounds"),
+    teamId: v.optional(v.id("teams")),
+    /** Drafts are included by default so a half-finished panel is visible. */
+    submittedOnly: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const round = await requireRound(ctx, args.roundId);
+
+    const teamId = args.teamId;
+    const sheets = teamId
+      ? await ctx.db
+          .query("scores")
+          .withIndex("by_round_team", (q) => q.eq("roundId", args.roundId).eq("teamId", teamId))
+          .collect()
+      : await roundScores(ctx, args.roundId);
+
+    const wanted = args.submittedOnly ? sheets.filter((sheet) => sheet.submitted) : sheets;
+
+    const rows = await Promise.all(
+      wanted.map(async (sheet) => {
+        const evaluator = await ctx.db.get(sheet.evaluatorId);
+        const team = await ctx.db.get(sheet.teamId);
+        return {
+          _id: sheet._id,
+          teamId: sheet.teamId,
+          /** The team as it is now, falling back to the name on the sheet. */
+          teamCode: team?.code ?? sheet.teamCode ?? "—",
+          teamName: team?.name ?? sheet.teamName ?? "Removed team",
+          evaluatorId: sheet.evaluatorId,
+          /** Signed on the sheet. The account name is only the fallback. */
+          evaluatorName: sheet.evaluatorName ?? evaluator?.name ?? "Evaluator",
+          /** The login the sheet was written from. */
+          evaluatorEmail: sheet.evaluatorEmail ?? evaluator?.email ?? null,
+          /**
+           * Set only when the signature and the account disagree, which is the
+           * case worth looking at: one login, several people on the panel.
+           */
+          signedForAnother:
+            !!sheet.evaluatorName &&
+            !!evaluator &&
+            sheet.evaluatorName.trim().toLowerCase() !== evaluator.name.trim().toLowerCase()
+              ? evaluator.name
+              : null,
+          total: sheet.total,
+          maxTotal: sheet.maxTotal,
+          percent: sheet.percent,
+          notes: sheet.notes ?? null,
+          submitted: sheet.submitted,
+          updatedAt: sheet.updatedAt,
+        };
+      }),
+    );
+
+    rows.sort(
+      (a, b) =>
+        a.teamCode.localeCompare(b.teamCode, undefined, { numeric: true }) ||
+        a.evaluatorName.localeCompare(b.evaluatorName),
+    );
+
+    const evaluators = new Set(rows.filter((r) => r.submitted).map((r) => r.evaluatorId));
+    const teamsScored = new Set(rows.filter((r) => r.submitted).map((r) => r.teamId));
+
+    return {
+      round: { _id: round._id, name: round.name, status: round.status, weight: round.weight },
+      rows,
+      submitted: rows.filter((r) => r.submitted).length,
+      drafts: rows.filter((r) => !r.submitted).length,
+      evaluators: evaluators.size,
+      teamsScored: teamsScored.size,
+    };
   },
 });
 

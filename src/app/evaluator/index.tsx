@@ -71,13 +71,32 @@ export default function EvaluatorTeams() {
     <Screen gradient={RoleTheme.evaluator.gradient} bottomInset={TAB_BAR_INSET}>
       <ScreenHeader
         eyebrow="Evaluator"
-        title={profile ? `Hello, ${profile.name.split(' ')[0]}` : 'Teams'}
+        title={profile?.name ?? 'Teams'}
         subtitle={
           round
             ? `Scoring ${round.name}. Pick a team, or scan its badge.`
             : 'Pick a round to start scoring.'
         }
       />
+
+      {/*
+        * Whose panel this is. Every sheet is signed and filed against this
+        * login, so the account in use is worth stating rather than assuming:
+        * one evaluator device often passes between the people on a panel.
+        */}
+      {!!profile && (
+        <Card style={styles.whoami}>
+          <View style={[styles.whoamiMark, { backgroundColor: withAlpha(accent, 0.14) }]}>
+            <MaterialCommunityIcons name="account-check-outline" size={18} color={accent} />
+          </View>
+          <View style={styles.whoamiText}>
+            <Text style={styles.whoamiName}>{profile.name}</Text>
+            <Text style={styles.whoamiMeta}>
+              Signed in as {profile.email}. Marks you submit are filed under this name.
+            </Text>
+          </View>
+        </Card>
+      )}
 
       <Button
         label="Scan a team badge"
@@ -237,6 +256,18 @@ export default function EvaluatorTeams() {
 }
 
 const useStyles = makeStyles((Brand) => ({
+  whoami: { flexDirection: 'row', alignItems: 'center', gap: Space.md },
+  whoamiMark: {
+    width: 38,
+    height: 38,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  whoamiText: { flex: 1 },
+  whoamiName: { color: Brand.text, fontSize: 15, fontWeight: '700' },
+  whoamiMeta: { color: Brand.textFaint, fontSize: 11.5, lineHeight: 16, marginTop: 2 },
+
   flex: { flex: 1 },
   pressed: { opacity: 0.65 },
 

@@ -164,6 +164,8 @@ export const createStaffAccount = mutation({
       department: args.department?.trim(),
       labIds,
       pushTokens: [],
+      /** A new account starts level with the room: no backlog to catch up on. */
+      chatLastReadAt: Date.now(),
       active: true,
       createdAt: Date.now(),
     });
@@ -245,6 +247,8 @@ export const provisionMaster = mutation({
       isMaster: true,
       labIds: [],
       pushTokens: [],
+      /** A new account starts level with the room: no backlog to catch up on. */
+      chatLastReadAt: Date.now(),
       active: true,
       createdAt: Date.now(),
     });

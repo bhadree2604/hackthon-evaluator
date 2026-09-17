@@ -68,7 +68,7 @@ export default function ScanScreen() {
         subtitle={
           lookup
             ? 'Scanned. Choose what to do with this team below.'
-            : 'Read a team QR or barcode to pull up the team.'
+            : 'Read the QR or the barcode on any team badge.'
         }
         right={
           <Pressable
@@ -397,7 +397,10 @@ function AttendanceSection({
 
       {!!board && !row && (
         <Card>
-          <Text style={styles.note}>{teamCode} is not one of your teams for this session.</Text>
+          <Text style={styles.note}>
+            {teamCode} is not on the register for this session. Only active teams can be
+            marked.
+          </Text>
         </Card>
       )}
 
