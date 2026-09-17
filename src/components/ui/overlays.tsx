@@ -11,15 +11,21 @@ import {
 } from 'react';
 import {
   Animated,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+/**
+ * React Native's own `KeyboardAvoidingView` does nothing on Android unless the
+ * window resizes, and a `Modal` with `statusBarTranslucent` does not resize —
+ * so a sheet with a field in it had the keyboard sitting on top of whatever
+ * was being typed. This one measures the keyboard directly and works the same
+ * on both platforms, inside a modal or out of it.
+ */
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/ui/button';
@@ -62,9 +68,7 @@ export function Sheet({
       onRequestClose={onClose}>
       <View style={styles.sheetRoot}>
         <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.sheetWrap}>
+        <KeyboardAvoidingView behavior="padding" style={styles.sheetWrap}>
           <View style={[styles.sheet, { paddingBottom: insets.bottom + Space.lg }]}>
             <View style={styles.grabber} />
             <View style={styles.sheetHead}>

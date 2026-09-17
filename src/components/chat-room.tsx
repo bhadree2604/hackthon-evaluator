@@ -61,7 +61,13 @@ function initials(name: string) {
   );
 }
 
-export function ChatRoom({ bottomInset = 0 }: { bottomInset?: number }) {
+/**
+ * The help desk room.
+ *
+ * Takes no bottom inset: the tab bar is part of the layout rather than floating
+ * over it, so the content area already ends where the tab bar begins.
+ */
+export function ChatRoom() {
   const Brand = useColors();
   const styles = useStyles();
   const RoleTheme = useRoleTheme();
@@ -325,8 +331,15 @@ export function ChatRoom({ bottomInset = 0 }: { bottomInset?: number }) {
           </ScrollView>
         )}
 
-        <View
-          style={[styles.composer, { paddingBottom: insets.bottom + bottomInset + Space.sm }]}>
+        {/*
+          * The composer sits on the bottom of the content area, and that is
+          * already above the tab bar: the tab bar is laid out in the flex
+          * column rather than floating over the screen, and it carries the
+          * home-indicator inset itself. Padding by `insets.bottom` and the tab
+          * bar height here counted both of them a second time and left the
+          * input floating roughly 110px up the screen with nothing under it.
+          */}
+        <View style={[styles.composer, { paddingBottom: Space.sm }]}>
           <View style={styles.inputWrap}>
             <TextInput
               value={draft}

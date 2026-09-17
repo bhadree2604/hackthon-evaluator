@@ -12,6 +12,7 @@ import {
   type Ctx,
 } from "./lib/guards";
 import { activeCriteria, countedRounds, maxTotalFor } from "./rounds";
+import { evaluatorKindValidator } from "./schema";
 
 /**
  * Scoring.
@@ -97,6 +98,16 @@ export const mySheet = query({
        * signature rather than making it be typed twice.
        */
       evaluatorName: existing?.evaluatorName ?? "",
+      /**
+       * Internal or external, and the employee id behind an internal sheet.
+       * Both come back null on a fresh sheet: the choice is the evaluator's to
+       * make, and defaulting it to "internal" would put an employee id field
+       * in front of a guest from another college.
+       */
+      evaluatorKind: existing?.evaluatorKind ?? null,
+      evaluatorEmployeeId: existing?.evaluatorEmployeeId ?? "",
+      /** What the roster said that id belonged to when the sheet was signed. */
+      evaluatorRosterName: existing?.evaluatorRosterName ?? null,
       /** The account the sheet is written from. Never editable. */
       evaluatorEmail: profile.email,
       criteria: criteria.map((c) => ({
@@ -130,6 +141,15 @@ export const save = mutation({
      * room; this is the answer to "who scored this team in this round".
      */
     evaluatorName: v.string(),
+    /**
+     * Internal (college faculty, identified by employee id) or external (a
+     * guest, identified by name). Optional so a client that predates the
+     * distinction still saves; such a sheet is stored without a kind rather
+     * than being guessed into one.
+     */
+    evaluatorKind: v.optional(evaluatorKindValidator),
+    /** Required when the kind is internal, ignored otherwise. */
+    evaluatorEmployeeId: v.optional(v.string()),
     notes: v.optional(v.string()),
     submit: v.boolean(),
   },
@@ -143,6 +163,30 @@ export const save = mutation({
         code: "NO_SIGNATURE",
         message: "Enter your name before scoring this team.",
       });
+    }
+
+    /**
+     * An internal evaluator has to give the employee id they are known by, and
+     * the roster name for it is stamped alongside whatever they signed. The id
+     * is not required to be *on* the roster: the export is a snapshot and a
+     * new member of staff evaluates anyway, so an unknown id is recorded with
+     * no roster name rather than refused.
+     */
+    const employeeId = args.evaluatorEmployeeId?.trim() ?? "";
+    let rosterName: string | undefined;
+
+    if (args.evaluatorKind === "internal") {
+      if (!employeeId) {
+        throw new ConvexError({
+          code: "NO_EMPLOYEE_ID",
+          message: "Internal evaluators have to give their employee id.",
+        });
+      }
+      const match = await ctx.db
+        .query("faculty")
+        .withIndex("by_employeeId", (q) => q.eq("searchKey", employeeId.toLowerCase()))
+        .unique();
+      rosterName = match?.name;
     }
 
     if (round.status !== "open") {
@@ -210,6 +254,10 @@ export const save = mutation({
     const stamp = {
       evaluatorName,
       evaluatorEmail: profile.email,
+      evaluatorKind: args.evaluatorKind,
+      /** Only an internal sheet carries an id; an external one clears it. */
+      evaluatorEmployeeId: args.evaluatorKind === "internal" ? employeeId : undefined,
+      evaluatorRosterName: args.evaluatorKind === "internal" ? rosterName : undefined,
       teamCode: team.code,
       teamName: team.name,
     };
@@ -250,6 +298,10 @@ export const save = mutation({
       roundName: round.name,
       teamName: team.name,
       evaluatorName,
+      evaluatorKind: args.evaluatorKind ?? null,
+      evaluatorEmployeeId: args.evaluatorKind === "internal" ? employeeId : null,
+      /** Null when an internal id was typed that the roster does not carry. */
+      rosterName: rosterName ?? null,
     };
   },
 });
@@ -634,6 +686,29 @@ export const roundSheets = query({
           evaluatorName: sheet.evaluatorName ?? evaluator?.name ?? "Evaluator",
           /** The login the sheet was written from. */
           evaluatorEmail: sheet.evaluatorEmail ?? evaluator?.email ?? null,
+          /** "internal", "external", or null on a sheet predating the choice. */
+          evaluatorKind: sheet.evaluatorKind ?? null,
+          evaluatorEmployeeId: sheet.evaluatorEmployeeId ?? null,
+          evaluatorRosterName: sheet.evaluatorRosterName ?? null,
+          /**
+           * An internal sheet whose employee id is not on the roster. Worth
+           * showing: either a new member of staff, or a mistyped id.
+           */
+          unknownEmployeeId:
+            sheet.evaluatorKind === "internal" &&
+            !!sheet.evaluatorEmployeeId &&
+            !sheet.evaluatorRosterName,
+          /**
+           * Set when the signature disagrees with the roster name for that id,
+           * which is how a shared id shows up.
+           */
+          differsFromRoster:
+            !!sheet.evaluatorRosterName &&
+            !!sheet.evaluatorName &&
+            sheet.evaluatorRosterName.trim().toLowerCase() !==
+              sheet.evaluatorName.trim().toLowerCase()
+              ? sheet.evaluatorRosterName
+              : null,
           /**
            * Set only when the signature and the account disagree, which is the
            * case worth looking at: one login, several people on the panel.
@@ -688,6 +763,10 @@ export const roundSheets = query({
       drafts: rows.filter((r) => !r.submitted).length,
       evaluators: evaluators.size,
       teamsScored: teamsScored.size,
+      /** Who is on the panel: faculty, guests, and sheets from before the split. */
+      internal: rows.filter((r) => r.evaluatorKind === "internal").length,
+      external: rows.filter((r) => r.evaluatorKind === "external").length,
+      unclassified: rows.filter((r) => r.evaluatorKind === null).length,
     };
   },
 });
@@ -715,6 +794,9 @@ export const updateSheet = mutation({
     sheetId: v.id("scores"),
     values: v.optional(v.array(v.object({ key: v.string(), value: v.number() }))),
     evaluatorName: v.optional(v.string()),
+    /** Correcting a sheet filed as the wrong kind of evaluator. */
+    evaluatorKind: v.optional(evaluatorKindValidator),
+    evaluatorEmployeeId: v.optional(v.string()),
     notes: v.optional(v.string()),
     submitted: v.optional(v.boolean()),
   },
@@ -739,6 +821,9 @@ export const updateSheet = mutation({
       percent?: number;
       notes?: string | undefined;
       submitted?: boolean;
+      evaluatorKind?: "internal" | "external";
+      evaluatorEmployeeId?: string | undefined;
+      evaluatorRosterName?: string | undefined;
     } = { updatedAt: Date.now() };
 
     if (args.evaluatorName !== undefined) {
@@ -750,6 +835,41 @@ export const updateSheet = mutation({
         });
       }
       patch.evaluatorName = name;
+    }
+
+    if (args.evaluatorKind !== undefined) {
+      patch.evaluatorKind = args.evaluatorKind;
+
+      if (args.evaluatorKind === "external") {
+        // A guest has no employee id, so filing it as external clears one.
+        patch.evaluatorEmployeeId = undefined;
+        patch.evaluatorRosterName = undefined;
+      } else {
+        const employeeId = (args.evaluatorEmployeeId ?? sheet.evaluatorEmployeeId ?? "").trim();
+        if (!employeeId) {
+          throw new ConvexError({
+            code: "NO_EMPLOYEE_ID",
+            message: "An internal sheet needs the evaluator's employee id.",
+          });
+        }
+        const match = await ctx.db
+          .query("faculty")
+          .withIndex("by_employeeId", (q) => q.eq("searchKey", employeeId.toLowerCase()))
+          .unique();
+        patch.evaluatorEmployeeId = employeeId;
+        patch.evaluatorRosterName = match?.name;
+      }
+    } else if (args.evaluatorEmployeeId !== undefined) {
+      // Correcting the id alone, on a sheet already filed as internal.
+      const employeeId = args.evaluatorEmployeeId.trim();
+      const match = employeeId
+        ? await ctx.db
+            .query("faculty")
+            .withIndex("by_employeeId", (q) => q.eq("searchKey", employeeId.toLowerCase()))
+            .unique()
+        : null;
+      patch.evaluatorEmployeeId = employeeId || undefined;
+      patch.evaluatorRosterName = match?.name;
     }
 
     /** What the sheet will hold once this patch lands, for the submit check. */

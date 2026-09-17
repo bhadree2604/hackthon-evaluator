@@ -43,13 +43,29 @@ export function Screen({
 
   const body = scroll ? (
     <KeyboardAwareScrollView
-      /* Lifts whatever is focused clear of the keyboard, both platforms. */
-      bottomOffset={Space.xxl}
+      /**
+       * Lifts whatever is focused clear of the keyboard and puts it back when
+       * the keyboard closes, on both platforms.
+       *
+       * `bottomOffset` is the gap left between the focused field and the top of
+       * the keyboard. At one space unit the field cleared the keyboard by a
+       * hair, which is not enough to read what you are typing on a short
+       * screen — a field sitting directly on the keyboard edge reads as cut
+       * off. Two and a half units leaves the field, and any error text under
+       * it, comfortably visible.
+       */
+      bottomOffset={keyboardAware ? Space.xxl * 2.5 : 0}
+      enabled={keyboardAware}
       style={styles.flex}
       contentContainerStyle={[styles.content, padding, contentStyle]}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="interactive"
-      automaticallyAdjustKeyboardInsets
+      /*
+       * `automaticallyAdjustKeyboardInsets` is deliberately not set. It is
+       * iOS's own keyboard inset handling, and running it alongside this
+       * scroll view's makes both adjust for the same keyboard, so a focused
+       * field is lifted roughly twice as far as it should be.
+       */
       showsVerticalScrollIndicator={false}
       refreshControl={
         onRefresh ? (

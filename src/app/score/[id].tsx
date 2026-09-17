@@ -7,7 +7,7 @@ import { Pressable, Text, View } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { TextField } from '@/components/ui/inputs';
 import { ScoreSlider } from '@/components/ui/score-slider';
-import { ConfirmDialog, useToast } from '@/components/ui/overlays';
+import { ConfirmDialog, Sheet, useToast } from '@/components/ui/overlays';
 import {
   Banner,
   Card,
@@ -164,6 +164,80 @@ export default function ScoreSheet() {
 
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Pick an internal evaluator off the staff roster.
+ *
+ * The employee id field is the quick path for somebody who knows their own id;
+ * this is for everybody else. Searches on id or name, and returns both, so the
+ * sheet ends up with the id even when the person was found by name.
+ */
+function FacultyPicker({
+  visible,
+  accent,
+  onClose,
+  onPick,
+}: {
+  visible: boolean;
+  accent: string;
+  onClose: () => void;
+  onPick: (person: { employeeId: string; name: string }) => void;
+}) {
+  const styles = useStyles();
+  const [term, setTerm] = useState('');
+  const results = useQuery(api.faculty.search, visible ? { query: term, limit: 40 } : 'skip');
+
+  return (
+    <Sheet
+      visible={visible}
+      onClose={onClose}
+      accent={accent}
+      title="Staff list"
+      subtitle="Search by name or employee id."
+      footer={<Button label="Close" variant="ghost" onPress={onClose} style={styles.flex} />}>
+      <TextField
+        label="Search"
+        value={term}
+        onChangeText={setTerm}
+        placeholder="Name or employee id"
+        accent={accent}
+        icon="magnify"
+        autoFocus
+      />
+
+      {results === undefined ? (
+        <ScreenLoading label="Loading the staff list" />
+      ) : results.rows.length === 0 ? (
+        <EmptyState
+          icon="account-search-outline"
+          title="Nobody matches that"
+          message="Check the spelling, or close this and type the employee id straight in."
+        />
+      ) : (
+        <>
+          <Text style={styles.signatureHint}>
+            {results.matched} of {results.total} staff
+          </Text>
+          {results.rows.map((person) => (
+            <Pressable
+              key={person.employeeId}
+              onPress={() => onPick(person)}
+              style={styles.facultyRow}>
+              <View style={styles.flex}>
+                <Text style={styles.facultyName}>{person.name}</Text>
+                <Text style={styles.signatureHint}>
+                  {person.employeeId}
+                  {person.department ? ` · dept ${person.department}` : ''}
+                </Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={18} color={accent} />
+            </Pressable>
+          ))}
+        </>
+      )}
+    </Sheet>
+  );
+}
+
 function RoundSheet({
   teamId,
   roundId,
@@ -189,6 +263,26 @@ function RoundSheet({
   const [confirming, setConfirming] = useState(false);
 
   /**
+   * Internal (college faculty, known by employee id) or external (a guest).
+   * Null until chosen: defaulting it would put an employee id field in front
+   * of a visitor from another college.
+   */
+  const [kind, setKind] = useState<'internal' | 'external' | null>(null);
+  const [employeeId, setEmployeeId] = useState('');
+  const [picking, setPicking] = useState(false);
+
+  /**
+   * The roster row for the id typed so far. Skipped entirely until the id is
+   * long enough to be one, so the first keystroke does not fire a query.
+   */
+  const faculty = useQuery(
+    api.faculty.lookup,
+    kind === 'internal' && employeeId.trim().length >= 3
+      ? { employeeId: employeeId.trim() }
+      : 'skip',
+  );
+
+  /**
    * The server copy seeds the form once per (round, save). Re-seeding on every
    * update would fight the evaluator's thumb while they are still typing.
    */
@@ -204,7 +298,24 @@ function RoundSheet({
     setValues(next);
     setSignature(sheet.evaluatorName);
     setNotes(sheet.notes);
+    setKind(sheet.evaluatorKind);
+    setEmployeeId(sheet.evaluatorEmployeeId);
   }, [roundId, sheet]);
+
+  /**
+   * The employee id fills in the name.
+   *
+   * Keyed on the id that was resolved, so it fires once when the lookup lands
+   * and never again — the evaluator is free to correct the spelling afterwards
+   * without it being overwritten on the next render.
+   */
+  const autofilled = useRef<string | null>(null);
+  useEffect(() => {
+    if (kind !== 'internal' || !faculty) return;
+    if (autofilled.current === faculty.employeeId) return;
+    autofilled.current = faculty.employeeId;
+    setSignature(faculty.name);
+  }, [kind, faculty]);
 
   const running = useMemo(() => {
     if (!sheet) return { total: 0, filled: 0 };
@@ -232,7 +343,15 @@ function RoundSheet({
     );
   }
 
-  const signed = signature.trim().length > 0;
+  /**
+   * A sheet is signed once the kind is chosen, a name is typed, and — for an
+   * internal evaluator — an employee id is given. The id does not have to be
+   * on the roster: a member of staff who joined after the export still scores.
+   */
+  const signed =
+    signature.trim().length > 0 &&
+    kind !== null &&
+    (kind === 'external' || employeeId.trim().length > 0);
   const complete = running.filled === sheet.criteria.length && signed;
   const percent = sheet.maxTotal > 0 ? (running.total / sheet.maxTotal) * 100 : 0;
 
@@ -249,6 +368,8 @@ function RoundSheet({
         teamId,
         values: payload,
         evaluatorName: signature,
+        ...(kind ? { evaluatorKind: kind } : {}),
+        ...(kind === 'internal' ? { evaluatorEmployeeId: employeeId.trim() } : {}),
         notes,
         submit,
       });
@@ -297,15 +418,104 @@ function RoundSheet({
         * rather than whose phone it was typed on.
         */}
       <Card style={styles.signature}>
-        <TextField
-          label="Your name, as the evaluator of this team"
-          value={signature}
-          onChangeText={setSignature}
-          placeholder="Type your name"
-          accent={accent}
-          editable={sheet.editable}
-          autoCapitalize="words"
-        />
+        {/* Which kind of evaluator is holding the phone. Nothing is preselected. */}
+        <View style={styles.kindRow}>
+          {(['internal', 'external'] as const).map((option) => (
+            <Pressable
+              key={option}
+              disabled={!sheet.editable}
+              onPress={() => {
+                setKind(option);
+                if (option === 'external') setEmployeeId('');
+              }}
+              style={[
+                styles.kindChip,
+                kind === option && {
+                  borderColor: accent,
+                  backgroundColor: withAlpha(accent, 0.14),
+                },
+              ]}>
+              <MaterialCommunityIcons
+                name={option === 'internal' ? 'school-outline' : 'account-tie-outline'}
+                size={15}
+                color={kind === option ? accent : Brand.textFaint}
+              />
+              <Text style={[styles.kindLabel, kind === option && { color: accent }]}>
+                {option === 'internal' ? 'Internal' : 'External'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={styles.signatureHint}>
+          {kind === 'internal'
+            ? 'College faculty. Enter your employee id and your name fills in.'
+            : kind === 'external'
+              ? 'Guest evaluator from outside the college. Your name is enough.'
+              : 'Choose which you are before scoring this team.'}
+        </Text>
+
+        {kind === 'internal' && (
+          <>
+            <TextField
+              label="Employee id"
+              value={employeeId}
+              onChangeText={setEmployeeId}
+              placeholder="e.g. 1223"
+              accent={accent}
+              editable={sheet.editable}
+              keyboardType="number-pad"
+              icon="card-account-details-outline"
+            />
+            <View style={styles.signatureFoot}>
+              <MaterialCommunityIcons
+                name={
+                  faculty
+                    ? 'check-circle-outline'
+                    : employeeId.trim().length >= 3
+                      ? 'alert-circle-outline'
+                      : 'magnify'
+                }
+                size={13}
+                color={
+                  faculty
+                    ? Brand.green
+                    : employeeId.trim().length >= 3
+                      ? Brand.amber
+                      : Brand.textFaint
+                }
+              />
+              <Text style={styles.signatureHint}>
+                {faculty
+                  ? `${faculty.name} on the staff roster`
+                  : employeeId.trim().length >= 3
+                    ? 'Not on the roster. You can still type your name and carry on.'
+                    : 'Type your id, or pick yourself from the list.'}
+              </Text>
+            </View>
+            <Button
+              label="Find me in the staff list"
+              variant="secondary"
+              size="sm"
+              icon="account-search-outline"
+              accent={accent}
+              disabled={!sheet.editable}
+              onPress={() => setPicking(true)}
+            />
+          </>
+        )}
+
+        {kind !== null && (
+          <TextField
+            label="Your name, as the evaluator of this team"
+            value={signature}
+            onChangeText={setSignature}
+            placeholder="Type your name"
+            accent={accent}
+            editable={sheet.editable}
+            autoCapitalize="words"
+          />
+        )}
+
         <View style={styles.signatureFoot}>
           <MaterialCommunityIcons
             name="account-check-outline"
@@ -317,13 +527,24 @@ function RoundSheet({
               * Deliberately blank on a new sheet. The server sends back only
               * what was signed on this sheet, never the account name or the
               * last team's signature, so whoever is holding the phone has to
-              * say who they are before this team can be scored.
+              * say who they are before this team can be scored. An employee id
+              * fills it in, and it stays editable afterwards.
               */}
-            Type the name of whoever is scoring this team. Saved against{' '}
-            {sheet.evaluatorEmail} and shown to the organisers with this round.
+            Saved against {sheet.evaluatorEmail} and shown to the organisers with this round.
           </Text>
         </View>
       </Card>
+
+      <FacultyPicker
+        visible={picking}
+        accent={accent}
+        onClose={() => setPicking(false)}
+        onPick={(person) => {
+          setEmployeeId(person.employeeId);
+          setSignature(person.name);
+          setPicking(false);
+        }}
+      />
 
       <Card style={styles.tally}>
         <View style={styles.tallyTop}>
@@ -462,6 +683,30 @@ const useStyles = makeStyles((Brand) => ({
   signature: { gap: Space.sm },
   signatureFoot: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   signatureHint: { color: Brand.textFaint, flex: 1, fontSize: 11.5, lineHeight: 16 },
+
+  kindRow: { flexDirection: 'row', gap: Space.sm },
+  kindChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: withAlpha(Brand.text, 0.12),
+  },
+  kindLabel: { color: Brand.textDim, fontSize: 13, fontWeight: '700' },
+
+  facultyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Space.sm,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: withAlpha(Brand.text, 0.07),
+  },
+  facultyName: { color: Brand.text, fontSize: 14, fontWeight: '600' },
 
   tally: { gap: Space.md },
   tallyTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

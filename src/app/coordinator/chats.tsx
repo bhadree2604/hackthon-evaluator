@@ -1,5 +1,4 @@
 import { ChatRoom } from '@/components/chat-room';
-import { TAB_BAR_INSET } from '@/components/role-shell';
 
 /**
  * The same shared room the organisers are in. A coordinator is the person a
@@ -7,5 +6,5 @@ import { TAB_BAR_INSET } from '@/components/role-shell';
  * having to be told about it second hand.
  */
 export default function CoordinatorChats() {
-  return <ChatRoom bottomInset={TAB_BAR_INSET} />;
+  return <ChatRoom />;
 }

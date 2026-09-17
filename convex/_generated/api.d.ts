@@ -14,6 +14,7 @@ import type * as attendance from "../attendance.js";
 import type * as auth from "../auth.js";
 import type * as chat from "../chat.js";
 import type * as criteria from "../criteria.js";
+import type * as faculty from "../faculty.js";
 import type * as http from "../http.js";
 import type * as importer from "../importer.js";
 import type * as labs from "../labs.js";
@@ -43,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   chat: typeof chat;
   criteria: typeof criteria;
+  faculty: typeof faculty;
   http: typeof http;
   importer: typeof importer;
   labs: typeof labs;

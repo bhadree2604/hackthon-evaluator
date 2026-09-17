@@ -930,6 +930,22 @@ function RoundPanelSheet({
               color={Brand.lilac}
               compact
             />
+            {data.internal > 0 && (
+              <Pill
+                label={`${data.internal} internal`}
+                icon="school-outline"
+                color={Brand.cyan}
+                compact
+              />
+            )}
+            {data.external > 0 && (
+              <Pill
+                label={`${data.external} external`}
+                icon="account-tie-outline"
+                color={Brand.lilac}
+                compact
+              />
+            )}
           </View>
 
           {groups.map((group) => (
@@ -966,10 +982,39 @@ function RoundPanelSheet({
                       color={row.submitted ? Brand.green : Brand.amber}
                     />
                     <View style={styles.flex}>
-                      <Text style={styles.panelName}>{row.evaluatorName}</Text>
+                      <View style={styles.panelNameRow}>
+                        <Text style={styles.panelName}>{row.evaluatorName}</Text>
+                        {/* Faculty vs guest, and the id a faculty sheet cites. */}
+                        {row.evaluatorKind !== null && (
+                          <Pill
+                            label={
+                              row.evaluatorKind === 'internal'
+                                ? `Internal${row.evaluatorEmployeeId ? ` · ${row.evaluatorEmployeeId}` : ''}`
+                                : 'External'
+                            }
+                            icon={
+                              row.evaluatorKind === 'internal'
+                                ? 'school-outline'
+                                : 'account-tie-outline'
+                            }
+                            color={row.evaluatorKind === 'internal' ? Brand.cyan : Brand.lilac}
+                            compact
+                          />
+                        )}
+                      </View>
                       <Text style={styles.panelMeta}>
                         {row.evaluatorEmail ?? 'no login on record'}
                       </Text>
+                      {!!row.differsFromRoster && (
+                        <Text style={styles.panelWarn}>
+                          Roster says {row.differsFromRoster} for that id
+                        </Text>
+                      )}
+                      {row.unknownEmployeeId && (
+                        <Text style={styles.panelWarn}>
+                          Employee id {row.evaluatorEmployeeId} is not on the staff roster
+                        </Text>
+                      )}
                       {!!row.signedForAnother && (
                         <Text style={styles.panelWarn}>
                           Written from {row.signedForAnother}&apos;s account
@@ -1118,6 +1163,7 @@ const useStyles = makeStyles((Brand) => ({
   panelTeamName: { color: Brand.text, fontSize: 14.5, fontWeight: '700', flex: 1 },
   panelRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Space.sm },
   panelName: { color: Brand.text, fontSize: 14, fontWeight: '700' },
+  panelNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   panelMeta: { color: Brand.textFaint, fontSize: 11, marginTop: 2 },
   panelWarn: { color: Brand.amber, fontSize: 11, marginTop: 2 },
   panelNote: { color: Brand.textMuted, fontSize: 11.5, lineHeight: 16, marginTop: 4 },

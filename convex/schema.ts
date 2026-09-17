@@ -47,6 +47,15 @@ export const roundStatusValidator = v.union(
   v.literal("locked"),
 );
 
+/**
+ * Internal evaluators are college faculty and carry an employee id; external
+ * evaluators are guests from outside and are recorded by name alone.
+ */
+export const evaluatorKindValidator = v.union(
+  v.literal("internal"),
+  v.literal("external"),
+);
+
 export const audienceValidator = v.union(
   v.literal("all"),
   v.literal("participants"),
@@ -271,6 +280,23 @@ export default defineSchema({
      */
     evaluatorName: v.optional(v.string()),
     evaluatorEmail: v.optional(v.string()),
+    /**
+     * Internal evaluators are college faculty and are identified by the
+     * employee id on their staff record; external evaluators come from outside
+     * and have no id to give, so they are identified by name alone. Optional
+     * so sheets written before the distinction existed still validate — those
+     * read back as `null`, not as internal.
+     */
+    evaluatorKind: v.optional(evaluatorKindValidator),
+    /**
+     * The employee id typed on an internal sheet, and the faculty name that
+     * was on the roster for it at the time. Kept next to `evaluatorName`
+     * rather than replacing it, because the evaluator may correct the spelling
+     * of their own name and the sheet should record what they signed as well
+     * as who the roster says that id belongs to.
+     */
+    evaluatorEmployeeId: v.optional(v.string()),
+    evaluatorRosterName: v.optional(v.string()),
     /** The team as it was named when it was scored, for the same reason. */
     teamCode: v.optional(v.string()),
     teamName: v.optional(v.string()),
@@ -290,6 +316,30 @@ export default defineSchema({
     .index("by_round_team", ["roundId", "teamId"])
     .index("by_round_evaluator", ["roundId", "evaluatorId"])
     .index("by_round_team_evaluator", ["roundId", "teamId", "evaluatorId"]),
+
+  /**
+   * The college staff roster, imported from the approval system's user table.
+   *
+   * It exists so an internal evaluator can type their employee id and have the
+   * sheet fill in their name, rather than thirty sheets carrying thirty
+   * spellings of it. Identity only: the source table also holds password
+   * hashes and login history, and none of that is imported.
+   *
+   * `employeeId` is the natural key and is unique. The source has several role
+   * accounts per person, so the import keeps one row per id.
+   */
+  faculty: defineTable({
+    employeeId: v.string(),
+    name: v.string(),
+    email: v.optional(v.string()),
+    department: v.optional(v.string()),
+    /** Lowercased `employeeId`, so a lookup is not case-sensitive. */
+    searchKey: v.string(),
+    active: v.boolean(),
+    importedAt: v.number(),
+  })
+    .index("by_employeeId", ["searchKey"])
+    .index("by_name", ["name"]),
 
   /** One support conversation per team, between the team and the organisers. */
   chats: defineTable({
