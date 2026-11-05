@@ -1,7 +1,7 @@
 /**
- * Hackfinity 3.0 design tokens.
+ * Hackthon Evaluator design tokens.
  *
- * The dark palette is lifted from hackfinity3.0.ramcoad.com so the companion
+ * The dark palette is tuned for the Hackthon Evaluator console so the companion
  * app reads as the same product. The light palette keeps the same token names
  * and the same meaning, with accents darkened enough to stay legible on paper
  * white — the site's cyan is unreadable as text on a light background.
@@ -210,15 +210,15 @@ export const Space = {
 } as const;
 
 export const EVENT = {
-  name: 'Hackfinity 3.0',
+  name: 'Hackthon Evaluator',
   tagline: 'Build at rocket speed',
   host: 'Ramco Institute of Technology',
   location: 'Rajapalayam, Tamil Nadu',
   dates: 'September 18 - 19, 2026',
   durationHours: 24,
   prizePool: '₹30,000',
-  site: 'https://hackfinity3.0.ramcoad.com',
-  supportEmail: 'hackfinity3.0@gmail.com',
+  site: '',
+  supportEmail: 'adminlog123@gmail.com',
 } as const;
 
 export type AttendanceStatus = 'present' | 'late' | 'excused' | 'absent';

@@ -99,8 +99,8 @@ function App({ convexUrl }: { convexUrl: string }) {
         <SafeAreaProvider>
           <ConvexBetterAuthProvider client={convex} authClient={authClient}>
             <SessionProvider>
-              <NotificationsProvider>
-                <ToastProvider>
+              <ToastProvider>
+                <NotificationsProvider>
                   <ThemedStatusBar />
                   {/*
                    * Every screen gets its own recovery boundary, so a screen that
@@ -115,8 +115,8 @@ function App({ convexUrl }: { convexUrl: string }) {
                       contentStyle: { backgroundColor: Brand.bg },
                     }}
                   />
-                </ToastProvider>
-              </NotificationsProvider>
+                </NotificationsProvider>
+              </ToastProvider>
             </SessionProvider>
           </ConvexBetterAuthProvider>
         </SafeAreaProvider>

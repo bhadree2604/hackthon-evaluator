@@ -1,4 +1,3 @@
-import * as SecureStore from 'expo-secure-store';
 import {
   createContext,
   useCallback,
@@ -19,11 +18,12 @@ import {
   type RoleKey,
   type RoleThemeEntry,
 } from '@/constants/brand';
+import * as SecureStore from '@/lib/secure-store';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type Scheme = 'light' | 'dark';
 
-const STORAGE_KEY = 'hackfinity.themeMode';
+const STORAGE_KEY = 'hackthon-evaluator.themeMode';
 
 type ThemeValue = {
   mode: ThemeMode;

@@ -25,8 +25,8 @@ const RECEIPT_CHUNK = 300;
 const RECEIPT_DELAY_MS = 30_000;
 
 /** Android channels are declared on the device; these ids must match app code. */
-export const CHANNEL_DEFAULT = "hackfinity-default";
-export const CHANNEL_URGENT = "hackfinity-urgent";
+export const CHANNEL_DEFAULT = "hackthon-evaluator-default";
+export const CHANNEL_URGENT = "hackthon-evaluator-urgent";
 
 /* -------------------------------------------------------------------------- */
 /* Device registration                                                         */
@@ -380,7 +380,7 @@ export const sendTest = mutation({
 
     await ctx.scheduler.runAfter(0, internal.notifications.dispatch, {
       onlyProfileId: profile._id,
-      title: "Hackfinity test alert",
+      title: "Hackthon Evaluator test alert",
       body: "Remote notifications are working on this phone. Lock it and send this again to be sure.",
       urgent: true,
       data: { type: "test" },

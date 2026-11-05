@@ -4,7 +4,7 @@ import { mutation, query } from "./_generated/server";
 import { requireAdmin, requireStaff } from "./lib/guards";
 
 /**
- * The Hackfinity 3.0 rubric: ten criteria, ten marks each, so a full sheet is
+ * The Hackthon Evaluator rubric: ten criteria, ten marks each, so a full sheet is
  * worth 100 and a sheet's raw total reads straight off as a percentage.
  *
  * `key` is what every score row stores, so a key must never change once

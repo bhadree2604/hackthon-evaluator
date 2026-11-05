@@ -41,7 +41,7 @@ export async function requireProfile(ctx: Ctx): Promise<Doc<"profiles">> {
   if (!profile) {
     throw new ConvexError({
       code: "NO_PROFILE",
-      message: "This account is not registered for Hackfinity 3.0.",
+      message: "This account is not registered for Hackthon Evaluator.",
     });
   }
   if (!profile.active) {

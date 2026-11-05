@@ -1,17 +1,17 @@
 {
   "expo": {
-    "name": "Hackfinity 3.0",
-    "slug": "hackfinity30",
+    "name": "Hackthon Evaluator",
+    "slug": "hackthon-evaluator",
     "version": "1.0.12",
     "orientation": "portrait",
     "icon": "./assets/images/brand/icon-512.png",
-    "scheme": "hackfinity30",
+    "scheme": "hackthon-evaluator",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#050509",
     "primaryColor": "#57e6ff",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.ramcoad.hackfinity3",
+      "bundleIdentifier": "com.ramcoad.hackthonevaluator",
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification"
@@ -20,7 +20,7 @@
       "buildNumber": "13"
     },
     "android": {
-      "package": "com.ramcoad.hackfinity3",
+      "package": "com.ramcoad.hackthonevaluator",
       "adaptiveIcon": {
         "backgroundColor": "#050509",
         "foregroundImage": "./assets/images/brand/icon-512.png",
@@ -31,6 +31,7 @@
       "versionCode": 13
     },
     "web": {
+      "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/brand/icon-192.png"
     },
@@ -40,7 +41,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Hackfinity 3.0 uses the camera to scan the QR and barcode on a team badge.",
+          "cameraPermission": "Hackthon Evaluator uses the camera to scan the QR and barcode on a team badge.",
           "recordAudioAndroid": false
         }
       ],
@@ -56,7 +57,7 @@
         "expo-notifications",
         {
           "color": "#57e6ff",
-          "defaultChannel": "hackfinity-default",
+          "defaultChannel": "hackthon-evaluator-default",
           "enableBackgroundRemoteNotifications": false
         }
       ]

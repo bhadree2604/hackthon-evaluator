@@ -1,5 +1,4 @@
 import { useConvexAuth, useMutation, useQuery } from 'convex/react';
-import * as SecureStore from 'expo-secure-store';
 import {
   createContext,
   useCallback,
@@ -14,6 +13,7 @@ import {
 import type { RoleKey } from '@/constants/brand';
 import { api } from '@/convex/_generated/api';
 import { getAuthClient } from '@/lib/auth-client';
+import * as SecureStore from '@/lib/secure-store';
 
 export type SessionStatus = 'loading' | 'signed-out' | 'unregistered' | 'disabled' | 'ready';
 
@@ -33,7 +33,7 @@ export type SessionProfile = {
   active: boolean;
 };
 
-const ACTIVE_ROLE_KEY = 'hackfinity.activeRole';
+const ACTIVE_ROLE_KEY = 'hackthon-evaluator.activeRole';
 
 /** Order used when picking a default role for a multi-role account. */
 const ROLE_PRIORITY: RoleKey[] = ['admin', 'evaluator', 'coordinator', 'participant'];

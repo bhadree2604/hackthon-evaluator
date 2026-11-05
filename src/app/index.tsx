@@ -1,7 +1,7 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Image } from 'expo-image';
 import { Redirect, useRouter } from 'expo-router';
-import { ActivityIndicator, Linking, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 import { Card, Pill, withAlpha } from '@/components/ui/primitives';
 import { Screen } from '@/components/ui/screen';
@@ -126,11 +126,7 @@ export default function Landing() {
       </Pressable>
 
       <View style={styles.footer}>
-        <Pressable
-          accessibilityRole="link"
-          onPress={() => Linking.openURL(EVENT.site).catch(() => {})}>
-          <Text style={styles.footerLink}>hackfinity3.0.ramcoad.com</Text>
-        </Pressable>
+        <Text style={styles.footerLink}>Hackthon Evaluator</Text>
         <Text style={styles.footerText}>
           {EVENT.host} · {EVENT.location}
         </Text>

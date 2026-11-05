@@ -1,8 +1,17 @@
-# Hackfinity 3.0 — Evaluation Console
+# Hackthon Evaluator — Evaluation Console
 
-Mobile app for running Hackfinity 3.0 at Ramco Institute of Technology
-(18–19 September 2026). Expo + expo-router on the front, Convex + Better Auth
-on the back.
+Mobile app for running Hackthon Evaluator at Ramco Institute of Technology
+(18–19 September 2026).
+
+**Stack:** Expo SDK 57 (React Native 0.86) + expo-router + TypeScript on the
+front, Convex + Better Auth on the back. This is a native/mobile project — not a
+Vite web app — and the same codebase also runs in the browser: `npm run web`
+serves it through react-native-web (storage falls back to localStorage, alerts
+appear as toasts, the badge scanner uses the webcam).
+
+> **Current state:** the repo ships with **no `.env.local`**, so it is not
+> connected to any Convex deployment until you follow section 1. Support:
+> adminlog123@gmail.com
 
 Four sign-ins, each with its own screen and its own slice of the event:
 
@@ -34,17 +43,10 @@ npx convex env set ADMIN_SETUP_KEY "pick-a-long-random-string"
 `ADMIN_SETUP_KEY` is only used once, to claim the very first organiser account.
 After that it is ignored.
 
-Then create `.env.local` (copy `.env.example`) and fill in the two public URLs
-printed by `convex dev`:
-
-```
-CONVEX_DEPLOYMENT=dev:your-deployment
-EXPO_PUBLIC_CONVEX_URL=https://your-deployment.convex.cloud
-EXPO_PUBLIC_CONVEX_SITE_URL=https://your-deployment.convex.site
-```
-
-> A build made without these still works: the first launch shows a one-time
-> screen where an organiser pastes the Convex URL, and the device remembers it.
+The repo ships with **no database configuration** — no `.env` or `.env.local`
+exists, so nothing points at a Convex deployment. To connect one later,
+`npx convex dev` prints the deployment URLs; paste the Convex URL on the app's
+first-launch screen and the device remembers it.
 
 Run the app:
 
@@ -70,7 +72,7 @@ repeat the team columns on each of a team's rows.
 
 Column names are matched loosely (`Team Code`, `teamcode`, `code`… all work).
 Only `Team Code` and `Team Name` are required. The registration export
-(`hackfinity-registrations-*.csv`) imports as it is, every column included.
+(`hackthon-evaluator-registrations-*.csv`) imports as it is, every column included.
 
 ```
 Team Code,Team Name,Project Title,Problem Code,Domain,Problem Domain,College,
@@ -149,13 +151,27 @@ which is fine for handing an APK around the campus but is not a Play Store
 key. For that, generate a keystore and point `signingConfigs.release` at it
 (see the React Native signed-APK guide).
 
+On Windows, `npm run build:android` does the whole chain in one step: version
+bump → prebuild → `gradlew.bat :app:assembleRelease` (arm64 + armeabi-v7a).
+
 Or build in the cloud, which also handles signing:
 
 ```bash
 npx eas-cli build --platform android --profile preview
 ```
 
-## 7. Project layout
+## 7. Everyday commands
+
+| Command | What it does |
+| --- | --- |
+| `npm start` | Expo dev server |
+| `npm run android` / `npm run ios` | Build and run on a device/emulator |
+| `npm run web` | Preview in the browser (react-native-web) |
+| `npm run lint` | ESLint with the Expo config |
+| `npm run bump` | Bump Android versionCode + versionName in app.json |
+| `npm run build:android` | Bump, prebuild and assemble the release APK (Windows) |
+
+## 8. Project layout
 
 ```
 convex/                 backend
@@ -177,5 +193,5 @@ src/app/                expo-router routes
   participant/ evaluator/ coordinator/ admin/
   team/[id] score/[id] chat/[id]
 src/components/ui/      the design system
-src/constants/brand.ts  palette taken from hackfinity3.0.ramcoad.com
+src/constants/brand.ts  palette and event branding for Hackthon Evaluator
 ```

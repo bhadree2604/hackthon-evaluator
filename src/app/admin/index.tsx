@@ -124,7 +124,7 @@ export default function AdminOverview() {
             <Banner
               tone="warn"
               title="Finish setup first"
-              message="Scoring and attendance need a rubric and session list. Load the Hackfinity defaults in one tap."
+              message="Scoring and attendance need a rubric and session list. Load the Hackthon Evaluator defaults in one tap."
               action={
                 <Button
                   label="Load defaults"

@@ -1,12 +1,11 @@
-import * as SecureStore from 'expo-secure-store';
-
 import { APP_SCHEME } from '@/lib/auth-client';
+import * as SecureStore from '@/lib/secure-store';
 
 /**
  * Everything this app persists on the device. Listed explicitly because
  * SecureStore has no way to enumerate its keys.
  */
-const APP_KEYS = ['hackfinity.convexUrl', 'hackfinity.themeMode', 'hackfinity.activeRole'];
+const APP_KEYS = ['hackthon-evaluator.convexUrl', 'hackthon-evaluator.themeMode', 'hackthon-evaluator.activeRole'];
 
 /** Better Auth's Expo client stores the session under its storage prefix. */
 const AUTH_KEYS = [

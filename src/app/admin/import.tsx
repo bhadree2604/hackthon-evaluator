@@ -5,7 +5,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
 
 import { TAB_BAR_INSET } from '@/components/role-shell';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,21 @@ import { makeStyles, useColors, useRoleTheme } from '@/lib/theme';
 import { errorMessage } from '@/lib/errors';
 
 const CHUNK = 80;
+
+/**
+ * Native hands the picker a `file://` path that expo-file-system reads
+ * directly. On web the picker returns a `blob:` URL plus the DOM File itself,
+ * which that module cannot open, so the text comes from the File (or a fetch
+ * of the blob) instead.
+ */
+async function readPickedText(asset: DocumentPicker.DocumentPickerAsset): Promise<string> {
+  if (Platform.OS === 'web') {
+    const file = (asset as DocumentPicker.DocumentPickerAsset & { file?: Blob }).file;
+    if (file && typeof file.text === 'function') return file.text();
+    return (await fetch(asset.uri)).text();
+  }
+  return new File(asset.uri).text();
+}
 
 const TEMPLATE_HEADER =
   'Team Code,Team Name,Project Title,Problem Code,Domain,Problem Domain,College,Lab,Table,Coordinator Email,Status,Total,Txn ID,Payment Link,Team Photo,Members,Accommodation,Fee/person,Stay/person,Submitted,Member #,Member Name,Email,Phone,Department,Year,Roll No,Photo,Team lead';
@@ -88,7 +103,7 @@ export default function ImportData() {
       if (picked.canceled || !picked.assets?.[0]) return;
 
       const asset = picked.assets[0];
-      const text = await new File(asset.uri).text();
+      const text = await readPickedText(asset);
       setRaw(text);
       setFileName(asset.name ?? 'selected file');
       setResult(null);

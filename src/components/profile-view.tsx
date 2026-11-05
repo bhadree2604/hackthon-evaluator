@@ -291,14 +291,16 @@ export function ProfileView() {
             <KeyValue label="Venue" value={EVENT.host} />
             <KeyValue label="Prize pool" value={EVENT.prizePool} />
           </View>
-          <Button
-            label="Open event site"
-            variant="ghost"
-            size="sm"
-            icon="open-in-new"
-            style={styles.siteButton}
-            onPress={() => Linking.openURL(EVENT.site).catch(() => {})}
-          />
+          {EVENT.site ? (
+            <Button
+              label="Open event site"
+              variant="ghost"
+              size="sm"
+              icon="open-in-new"
+              style={styles.siteButton}
+              onPress={() => Linking.openURL(EVENT.site).catch(() => {})}
+            />
+          ) : null}
         </Card>
       </Section>
 

@@ -1,5 +1,5 @@
 {
-  "name": "hackfinity3.0",
+  "name": "hackthon-evaluator",
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {

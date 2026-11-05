@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '@/lib/secure-store';
 
 /**
  * Where the Convex deployment lives.
@@ -8,7 +8,7 @@ import * as SecureStore from 'expo-secure-store';
  * paste the URL once on first launch and it is remembered on the device.
  */
 
-const STORAGE_KEY = 'hackfinity.convexUrl';
+const STORAGE_KEY = 'hackthon-evaluator.convexUrl';
 
 const ENV_CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL ?? '';
 const ENV_SITE_URL = process.env.EXPO_PUBLIC_CONVEX_SITE_URL ?? '';

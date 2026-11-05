@@ -12,7 +12,7 @@ import authConfig from "./auth.config";
  * App scheme, must match `expo.scheme` in app.json. Better Auth rejects the
  * deep link redirect coming back from the native app unless it is trusted.
  */
-export const APP_SCHEME = "hackfinity30";
+export const APP_SCHEME = "hackthon-evaluator";
 
 /**
  * Shortest password Better Auth will accept anywhere in the app. It is 1 so a

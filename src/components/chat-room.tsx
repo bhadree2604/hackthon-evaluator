@@ -145,7 +145,7 @@ export function ChatRoom() {
             <Text style={styles.headerTitle}>Help desk</Text>
             <Text style={styles.headerSubtitle}>
               {messages.length === 0
-                ? 'Everyone at Hackfinity is in this room'
+                ? 'Everyone at Hackthon Evaluator is in this room'
                 : `${messages.length} message${messages.length === 1 ? '' : 's'} · everyone is in this room`}
             </Text>
           </View>

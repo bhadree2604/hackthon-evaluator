@@ -2,14 +2,15 @@ import { expoClient } from '@better-auth/expo/client';
 import { convexClient } from '@convex-dev/better-auth/client/plugins';
 import { createAuthClient } from 'better-auth/react';
 import Constants from 'expo-constants';
-import * as SecureStore from 'expo-secure-store';
+
+import * as SecureStore from '@/lib/secure-store';
 
 /**
  * `expo.scheme` in app.json. Better Auth signs the deep link back into the app
  * with this, and it has to match `trustedOrigins` in convex/auth.ts.
  */
 const rawScheme = Constants.expoConfig?.scheme;
-export const APP_SCHEME = (Array.isArray(rawScheme) ? rawScheme[0] : rawScheme) ?? 'hackfinity30';
+export const APP_SCHEME = (Array.isArray(rawScheme) ? rawScheme[0] : rawScheme) ?? 'hackthon-evaluator';
 
 export type AppAuthClient = ReturnType<typeof buildAuthClient>;
 

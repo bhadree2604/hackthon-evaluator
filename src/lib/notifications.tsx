@@ -7,23 +7,27 @@ import { useRouter } from 'expo-router';
 import { Component, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Platform } from 'react-native';
 
+import { useToast } from '@/components/ui/overlays';
 import { DarkColors } from '@/constants/brand';
 import { api } from '@/convex/_generated/api';
 import { useSession } from '@/lib/session';
 
 /** Must match the channel ids used by convex/notifications.ts. */
-export const CHANNEL_DEFAULT = 'hackfinity-default';
-export const CHANNEL_URGENT = 'hackfinity-urgent';
+export const CHANNEL_DEFAULT = 'hackthon-evaluator-default';
+export const CHANNEL_URGENT = 'hackthon-evaluator-urgent';
 
 // Foreground behaviour: banner + sound, exactly like a background push.
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+// The web build has no notification presenter; alerts surface as toasts there.
+if (Platform.OS !== 'web') {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
 
 type NotificationsValue = {
   permission: 'unknown' | 'granted' | 'denied';
@@ -60,7 +64,7 @@ async function ensureChannels() {
   if (Platform.OS !== 'android') return;
 
   await Notifications.setNotificationChannelAsync(CHANNEL_DEFAULT, {
-    name: 'Hackfinity updates',
+    name: 'Hackthon Evaluator updates',
     importance: Notifications.AndroidImportance.HIGH,
     vibrationPattern: [0, 250, 120, 250],
     lightColor: DarkColors.cyan,
@@ -81,6 +85,7 @@ async function ensureChannels() {
 
 export function NotificationsProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const toast = useToast();
   const { status, profile, roles } = useSession();
   const registerPushToken = useMutation(api.notifications.registerPushToken);
   const unregisterPushToken = useMutation(api.notifications.unregisterPushToken);
@@ -93,7 +98,11 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const remotePushAvailable = Platform.OS !== 'web' && !!projectId();
 
   const alertNow = useCallback(async (title: string, body: string, urgent = false, options?: { hapticsOnly?: boolean }) => {
-    if (Platform.OS === 'web') return;
+    if (Platform.OS === 'web') {
+      // No push and no haptics in a browser: raise the same words as a toast.
+      if (!options?.hapticsOnly) toast.show(`${title} — ${body}`, urgent ? 'error' : 'info');
+      return;
+    }
     try {
       await Haptics.notificationAsync(
         urgent
@@ -123,7 +132,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     } catch {
       // A blocked notification must never take the screen down with it.
     }
-  }, []);
+  }, [toast]);
 
   /**
    * Several roles get tested on one phone during an event. Without this the

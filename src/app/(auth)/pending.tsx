@@ -89,7 +89,7 @@ export default function PendingAccess() {
           icon="email-outline"
           onPress={() =>
             Linking.openURL(
-              `mailto:${EVENT.supportEmail}?subject=Hackfinity%203.0%20console%20access`,
+              `mailto:${EVENT.supportEmail}?subject=Hackthon%20Evaluator%20console%20access`,
             ).catch(() => {})
           }
           full

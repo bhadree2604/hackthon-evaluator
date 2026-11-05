@@ -1,12 +1,12 @@
 import { reloadAppAsync } from 'expo';
 import { Image } from 'expo-image';
 import { router, type ErrorBoundaryProps } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
 import { useEffect, useRef } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
 import { errorCode } from '@/lib/errors';
 import { clearAuthSession } from '@/lib/reset';
+import * as SecureStore from '@/lib/secure-store';
 import { makeStyles, useColors } from '@/lib/theme';
 
 /**
@@ -27,7 +27,7 @@ import { makeStyles, useColors } from '@/lib/theme';
  * reloaded, so for those the reload is tried first.
  */
 
-const RELOAD_KEY = 'hackfinity.recoveryReloadAt';
+const RELOAD_KEY = 'hackthon-evaluator.recoveryReloadAt';
 const RELOAD_COOLDOWN_MS = 2 * 60_000;
 /** A failure this long after the previous one starts a fresh streak. */
 const QUIET_MS = 30_000;

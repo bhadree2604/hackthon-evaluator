@@ -164,7 +164,7 @@ export default function AdminSetup() {
           <EmptyState
             icon="tune-variant"
             title="No criteria yet"
-            message="Load the five Hackfinity defaults or write your own."
+            message="Load the five Hackthon Evaluator defaults or write your own."
             action={
               <Button
                 label="Load defaults"
